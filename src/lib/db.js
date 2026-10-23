@@ -125,8 +125,8 @@ export function fetchFeed(viewerId, beforeId = null, authorId = null) {
   return api('GET', `/api/feed${suffix}`);
 }
 
-export async function createPost(userId, body, image = null) {
-  await api('POST', '/api/posts', { body, image });
+export async function createPost(userId, body, image = null, video = null) {
+  await api('POST', '/api/posts', { body, image, video });
 }
 
 export async function deletePost(postId) {

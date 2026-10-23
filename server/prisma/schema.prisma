@@ -55,6 +55,7 @@ model Post {
   userId      Int        @map("user_id")
   body        String
   image       String?
+  video       String?
   createdAt   BigInt     @map("created_at")
 
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -175,6 +176,7 @@ model Conversation {
   id          Int      @id @default(autoincrement())
   kind        String
   title       String?
+  description String?
   createdBy   Int      @map("created_by")
   createdAt   BigInt   @map("created_at")
 

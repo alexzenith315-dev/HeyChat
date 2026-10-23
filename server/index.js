@@ -292,6 +292,8 @@ app.put(
 /* ---- feed & posts ---- */
 
 const PAGE_SIZE = 20;
+const MAX_VIDEO_BYTES = 1500 * 1024;
+const VIDEO_MIME = /^data:(video\/(mp4|webm));base64,/;
 
 app.get(
   '/api/feed',
@@ -314,7 +316,7 @@ app.get(
     }
     args.push(PAGE_SIZE + 1);
     const posts = await q(
-      `SELECT p.id, p.body, p.image, p.created_at, p.user_id, u.name AS author, u.avatar AS author_avatar
+      `SELECT p.id, p.body, p.image, p.video, p.created_at, p.user_id, u.name AS author, u.avatar AS author_avatar
        FROM posts p JOIN users u ON u.id = p.user_id
        WHERE ${where.join(' AND ')}
        ORDER BY p.id DESC LIMIT ?`,
@@ -373,13 +375,19 @@ app.post(
   wrap(async (req, res) => {
     const text = String(req.body?.body ?? '').trim();
     const image = req.body?.image ?? null;
-    if (!text && !image) bad('Write something first.');
+    const video = req.body?.video ?? null;
+    if (!text && !image && !video) bad('Write something first.');
     if (text.length > 280) bad('Keep it under 280 characters.');
     if (image && image.length > 200 * 1024) bad('That picture is too large.');
-    await exec('INSERT INTO posts (user_id, body, image, created_at) VALUES (?, ?, ?, ?)', [
+    if (video) {
+      if (!VIDEO_MIME.test(video)) bad('Videos must be mp4 or webm.');
+      if (video.length > MAX_VIDEO_BYTES) bad('That video is too large.');
+    }
+    await exec('INSERT INTO posts (user_id, body, image, video, created_at) VALUES (?, ?, ?, ?, ?)', [
       me(req),
       text,
       image,
+      video,
       Date.now(),
     ]);
     res.json({ ok: true });
@@ -748,12 +756,12 @@ app.get(
   wrap(async (req, res) => {
     const id = Number(req.params.id);
     if (!(await requireMember(id, me(req)))) return res.status(404).json({ error: 'Not in this conversation.' });
-    const c = await one('SELECT c.id, c.kind, c.title, c.created_by, cm.muted FROM conversations c JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = ? WHERE c.id = ?', [
-      me(req),
-      id,
-    ]);
+    const c = await one(
+      'SELECT c.id, c.kind, c.title, c.description, c.created_by, cm.muted FROM conversations c JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = ? WHERE c.id = ?',
+      [me(req), id],
+    );
     const members = await q(
-      `SELECT u.id, u.name FROM conversation_members m JOIN users u ON u.id = m.user_id
+      `SELECT u.id, u.name, u.avatar FROM conversation_members m JOIN users u ON u.id = m.user_id
        WHERE m.conversation_id = ? ORDER BY lower(u.name)`,
       [id],
     );
@@ -765,10 +773,61 @@ app.get(
       id: c.id,
       kind: c.kind,
       title,
+      description: c.description ?? '',
       createdBy: c.created_by,
       muted: !!c.muted,
+      canEdit: canManageConversation(c, me(req), req.user.isAdmin),
       members: members.map((m) => m.name),
+      memberList: members.map((m) => ({ id: Number(m.id), name: m.name, avatar: m.avatar ?? null })),
     });
+  }),
+);
+
+// Creator or owner (admin) can manage a group or channel. DMs have no admin.
+function canManageConversation(c, userId, isAdmin) {
+  if (c.kind === 'dm') return false;
+  return Number(c.created_by) === Number(userId) || !!isAdmin;
+}
+
+// Rename a group or channel and change its description. Only the creator or owner.
+app.patch(
+  '/api/conversations/:id',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const c = await one('SELECT id, kind, title, description, created_by FROM conversations WHERE id = ?', [id]);
+    if (!c) return res.status(404).json({ error: 'No such conversation.' });
+    if (!canManageConversation(c, me(req), req.user.isAdmin)) {
+      if (!(await requireMember(id, me(req)))) return res.status(404).json({ error: 'Not in this conversation.' });
+      return res.status(403).json({ error: 'Only the creator or owner can edit this.' });
+    }
+    const hasTitle = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'title');
+    const hasDescription = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'description');
+    const title = hasTitle ? String(req.body.title ?? '').trim() : c.title;
+    const description = hasDescription ? String(req.body.description ?? '').trim() : c.description ?? '';
+    if (!title) bad(c.kind === 'channel' ? 'Give the channel a name.' : 'Give the group a name.');
+    if (title.length > 60) bad('Keep the name under 60 characters.');
+    if (description.length > 280) bad('Keep the description under 280 characters.');
+    await exec('UPDATE conversations SET title = ?, description = ? WHERE id = ?', [title, description, id]);
+    res.json({ ok: true, title, description });
+  }),
+);
+
+// Remove a member. Creator or owner only. The creator cannot be removed.
+app.delete(
+  '/api/conversations/:id/members/:userId',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const targetId = Number(req.params.userId);
+    const c = await one('SELECT id, kind, created_by FROM conversations WHERE id = ?', [id]);
+    if (!c) return res.status(404).json({ error: 'No such conversation.' });
+    if (!canManageConversation(c, me(req), req.user.isAdmin)) {
+      return res.status(403).json({ error: 'Only the creator or owner can remove members.' });
+    }
+    if (c.kind === 'dm') bad('Direct messages have no members to remove.');
+    if (targetId === Number(c.created_by)) bad('The creator can’t be removed from their own group.');
+    const removed = await exec('DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?', [id, targetId]);
+    if (!removed.rowCount) return res.status(404).json({ error: 'That person isn’t in this conversation.' });
+    res.json({ ok: true });
   }),
 );
 
@@ -1023,4 +1082,12 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => console.log(`HeyChat API on :${PORT}`));
+
+// Idempotent column additions. Safe to run on every boot against the live database.
+async function migrate() {
+  await exec('ALTER TABLE conversations ADD COLUMN IF NOT EXISTS description TEXT');
+  await exec('ALTER TABLE posts ADD COLUMN IF NOT EXISTS video TEXT');
+}
+migrate()
+  .catch((e) => console.error('Migration failed', e))
+  .finally(() => app.listen(PORT, () => console.log(`HeyChat API on :${PORT}`)));

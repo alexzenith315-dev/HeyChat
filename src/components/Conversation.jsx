@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ArrowLeft, BellSlash, Bell, ImageSquare, X, PaperPlaneRight } from '@phosphor-icons/react';
+import { ArrowLeft, BellSlash, Bell, ImageSquare, Info, X, PaperPlaneRight } from '@phosphor-icons/react';
 import {
   ensureMessagesSchema,
   getConversation,
@@ -9,10 +9,13 @@ import {
   markConversationRead,
   setMuted,
   sendMessage,
+  updateConversation,
+  removeConversationMember,
   MAX_MESSAGE,
   MAX_MESSAGE_IMAGE_BYTES,
 } from '../lib/messages';
 import Avatar from './Avatar';
+import ConversationInfo from './ConversationInfo';
 
 const POLL_MS = 3000;
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
@@ -49,6 +52,7 @@ export default function Conversation({ viewer }) {
   const { id } = useParams();
   const convId = Number(id);
   const [conv, setConv] = useState(null);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [messages, setMessages] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [sendError, setSendError] = useState('');
@@ -170,6 +174,15 @@ export default function Conversation({ viewer }) {
             </p>
           )}
         </div>
+        {conv && conv.kind !== 'dm' && (
+          <button
+            onClick={() => setInfoOpen(true)}
+            className="focus-ring flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-ink-secondary hover:bg-black/5 active:scale-[0.96] transition"
+          >
+            <Info size={16} aria-hidden="true" />
+            Info
+          </button>
+        )}
         {conv && (
           <button
             onClick={toggleMute}
@@ -293,6 +306,17 @@ export default function Conversation({ viewer }) {
           </form>
         )}
       </div>
+
+      {infoOpen && conv && conv.kind !== 'dm' && (
+        <ConversationInfo
+          conv={conv}
+          viewer={viewer}
+          onClose={() => setInfoOpen(false)}
+          onChanged={load}
+          onUpdate={updateConversation}
+          onRemoveMember={removeConversationMember}
+        />
+      )}
     </div>
   );
 }

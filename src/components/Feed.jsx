@@ -79,16 +79,26 @@ function StoriesRow({ viewer }) {
   );
 }
 
+export const isVideoPost = (p) => !!p.video && /^data:video\/(mp4|webm);/.test(p.video);
+
 function ReelsGrid({ posts }) {
-  const withImages = (posts ?? []).filter((p) => p.image);
   if (posts === null) return <p className="mt-6 text-sm text-ink-faint">Loading…</p>;
-  if (withImages.length === 0) {
-    return <p className="mt-10 text-center text-ink-muted">No pictures yet. Post one and it shows up here.</p>;
+  const reels = (posts ?? []).filter(isVideoPost);
+  if (reels.length === 0) {
+    return <p className="mt-10 text-center text-ink-muted">No reels yet. Post a video and it shows up here.</p>;
   }
   return (
     <div className="mt-6 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
-      {withImages.map((p) => (
-        <img key={p.id} src={p.image} alt={p.body ? p.body.slice(0, 80) : `Picture by ${p.author}`} loading="lazy" className="aspect-[3/4] w-full object-cover" />
+      {reels.map((p) => (
+        <video
+          key={p.id}
+          src={p.video}
+          muted
+          playsInline
+          preload="metadata"
+          aria-label={p.body ? p.body.slice(0, 80) : `Video by ${p.author}`}
+          className="aspect-[3/4] w-full bg-black object-cover"
+        />
       ))}
     </div>
   );
@@ -120,12 +130,13 @@ export default function Feed({ viewer, onCoinsChanged }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState('');
-  const [image, setImage] = useState(null);
   const [posting, setPosting] = useState(false);
   const fileRef = useRef(null);
   const reduce = useReducedMotion();
+  const [image, setImage] = useState(null);
+  const [video, setVideo] = useState(null);
   const remaining = MAX - draft.length;
-  const canPost = (draft.trim() || image) && !posting;
+  const canPost = (draft.trim() || image || video) && !posting;
 
   const load = useCallback(async () => {
     try {
@@ -162,7 +173,21 @@ export default function Feed({ viewer, onCoinsChanged }) {
     if (!file) return;
     setError('');
     try {
+      if (file.type.startsWith('video/')) {
+        if (!/^video\/(mp4|webm)$/.test(file.type)) throw new Error('Videos must be mp4 or webm.');
+        if (file.size > 1000 * 1024) throw new Error('That video is too large (1 MB max).');
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Could not read that video.'));
+          reader.readAsDataURL(file);
+        });
+        setVideo(dataUrl);
+        setImage(null);
+        return;
+      }
       setImage(await toPostImageDataUrl(file));
+      setVideo(null);
     } catch (err) {
       setError(err.message);
     }
@@ -173,9 +198,10 @@ export default function Feed({ viewer, onCoinsChanged }) {
     setError('');
     setPosting(true);
     try {
-      await createPost(viewer.id, draft, image);
+      await createPost(viewer.id, draft, image, video);
       setDraft('');
       setImage(null);
+      setVideo(null);
       await load();
     } catch (err) {
       setError(err.message);
@@ -237,6 +263,26 @@ export default function Feed({ viewer, onCoinsChanged }) {
               </div>
             </motion.div>
           )}
+          {video && (
+            <motion.div
+              initial={reduce ? false : { opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="relative mt-3">
+                <video src={video} muted playsInline controls className="max-h-64 w-full rounded-xl bg-black" />
+                <button
+                  type="button"
+                  onClick={() => setVideo(null)}
+                  aria-label="Remove video"
+                  className="focus-ring absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-ink/70 text-white"
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
         <div className="mt-2 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -248,7 +294,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
             >
               <ImageSquare size={20} aria-hidden="true" />
             </button>
-            <input ref={fileRef} type="file" accept="image/*" onChange={pickImage} className="sr-only" tabIndex={-1} />
+            <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm" onChange={pickImage} className="sr-only" tabIndex={-1} />
             <motion.span
               animate={{ color: remaining <= 20 ? '#dd5b00' : '#a39e98' }}
               transition={{ duration: 0.2 }}

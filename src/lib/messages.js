@@ -26,6 +26,17 @@ export function getConversation(id, viewerId) {
   return api('GET', `/api/conversations/${id}`).catch(() => null);
 }
 
+export function updateConversation(id, { title, description }) {
+  const body = {};
+  if (title !== undefined) body.title = title;
+  if (description !== undefined) body.description = description;
+  return api('PATCH', `/api/conversations/${id}`, body);
+}
+
+export function removeConversationMember(id, userId) {
+  return api('DELETE', `/api/conversations/${id}/members/${userId}`);
+}
+
 export function fetchMessages(conversationId) {
   return api('GET', `/api/conversations/${conversationId}/messages`);
 }

@@ -1,16 +1,36 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Link, useParams } from 'react-router-dom';
 import { fetchProfile, fetchFeed, toggleFollowUser } from '../lib/db';
 import Post from './Post';
 import Avatar from './Avatar';
+import { isVideoPost } from './Feed';
 
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
+const PROFILE_TABS = [
+  { id: 'posts', label: 'Posts' },
+  { id: 'media', label: 'Media' },
+  { id: 'reels', label: 'Reels' },
+];
+
+function Stat({ value, label }) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col items-center py-3">
+      <span className="font-display text-lg font-bold tabular-nums text-ink">{value}</span>
+      <span className="text-xs text-ink-muted">{label}</span>
+    </div>
+  );
+}
+
+function EmptyNote({ children }) {
+  return <p className="mt-10 text-center text-ink-muted">{children}</p>;
+}
 
 export default function Profile({ viewer }) {
   const id = Number(useParams().id) || 0;
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState(null);
+  const [tab, setTab] = useState('posts');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const reduce = useReducedMotion();
@@ -34,8 +54,12 @@ export default function Profile({ viewer }) {
   useEffect(() => {
     setProfile(null);
     setPosts(null);
+    setTab('posts');
     load();
   }, [load]);
+
+  const media = useMemo(() => (posts ?? []).filter((p) => p.image), [posts]);
+  const reels = useMemo(() => (posts ?? []).filter(isVideoPost), [posts]);
 
   async function toggleFollow() {
     if (!profile || busy) return;
@@ -69,75 +93,135 @@ export default function Profile({ viewer }) {
   if (!profile) {
     return (
       <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8" aria-label="Loading profile">
-        <div className="card h-40 animate-pulse bg-black/[0.03]" />
+        <div className="card h-56 animate-pulse bg-black/[0.03]" />
       </div>
     );
   }
 
+  const initial = (profile.name || '?').slice(0, 1).toUpperCase();
+  const handle = `@${String(profile.name || '').replace(/\s+/g, '').toLowerCase()}`;
+
   return (
-    <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
-      <section className="card p-5">
-        <div className="flex items-center gap-4">
-          <Avatar name={profile.name} src={profile.avatar} size="size-16" text="text-2xl" />
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate font-display text-2xl font-bold tracking-tight text-ink">{profile.name}</h1>
-            <p className="mt-1 text-sm tabular-nums text-ink-muted">
-              <span className="font-semibold text-ink">{profile.followers}</span> followers
-              <span className="mx-2 text-ink-faint">·</span>
-              <span className="font-semibold text-ink">{profile.following}</span> following
-            </p>
-          </div>
-          {isSelf ? (
-            <Link
-              to="/profile/edit"
-              className="focus-ring shrink-0 rounded-full border border-hairline bg-white px-4 py-1.5 text-sm font-medium text-ink-secondary hover:bg-black/5"
-            >
-              Edit profile
-            </Link>
-          ) : (
-            <motion.button
-              whileTap={reduce ? undefined : { scale: 0.86 }}
-              onClick={toggleFollow}
-              disabled={busy}
-              aria-pressed={profile.followed}
-              className={`focus-ring shrink-0 rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
-                profile.followed ? 'border-hairline bg-white text-ink-muted' : 'border-primary bg-primary text-white'
-              }`}
-            >
-              {profile.followed ? 'Unfollow' : 'Follow'}
-            </motion.button>
-          )}
+    <div className="mx-auto w-full max-w-xl pb-24 sm:pt-6">
+      <section className="card overflow-hidden rounded-none border-x-0 border-t-0 shadow-none sm:rounded-xl sm:border">
+        {/* Cover */}
+        <div className="relative h-32 bg-gradient-to-br from-accent-sky via-primary to-accent-pink sm:h-40" aria-hidden="true">
+          <span className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
         </div>
-        {profile.bio ? (
-          <p className="mt-4 whitespace-pre-wrap break-words text-ink-secondary">{profile.bio}</p>
-        ) : (
-          <p className="mt-4 text-sm text-ink-faint">{isSelf ? 'Add a bio from Edit profile.' : 'No bio yet.'}</p>
-        )}
+
+        <div className="px-5 pb-5">
+          {/* Overlapping avatar + action */}
+          <div className="-mt-12 flex items-end justify-between gap-3">
+            <div className="rounded-full bg-canvas p-1 shadow-soft">
+              <Avatar name={profile.name} src={profile.avatar} size="size-24" text="text-3xl" />
+            </div>
+            {isSelf ? (
+              <Link
+                to="/profile/edit"
+                className="focus-ring mb-1 rounded-full border border-hairline bg-white px-4 py-1.5 text-sm font-semibold text-ink-secondary hover:bg-black/5"
+              >
+                Edit profile
+              </Link>
+            ) : (
+              <motion.button
+                whileTap={reduce ? undefined : { scale: 0.92 }}
+                transition={spring}
+                onClick={toggleFollow}
+                disabled={busy}
+                aria-pressed={profile.followed}
+                className={`focus-ring mb-1 rounded-full border px-5 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50 ${
+                  profile.followed ? 'border-hairline bg-white text-ink-secondary' : 'border-primary bg-primary text-white'
+                }`}
+              >
+                {profile.followed ? 'Following' : 'Follow'}
+              </motion.button>
+            )}
+          </div>
+
+          <h1 className="mt-3 truncate font-display text-2xl font-bold tracking-tight text-ink">{profile.name}</h1>
+          <p className="text-sm text-ink-muted">{handle}</p>
+
+          {profile.bio ? (
+            <p className="mt-3 whitespace-pre-wrap break-words text-ink-secondary">{profile.bio}</p>
+          ) : (
+            <p className="mt-3 text-sm text-ink-faint">{isSelf ? 'Add a bio from Edit profile.' : 'No bio yet.'}</p>
+          )}
+
+          {/* Stats row */}
+          <div className="mt-4 flex divide-x divide-hairline rounded-xl border border-hairline bg-canvas-soft">
+            <Stat value={posts ? posts.length : '–'} label="Posts" />
+            <Stat value={profile.followers} label="Followers" />
+            <Stat value={profile.following} label="Following" />
+          </div>
+        </div>
       </section>
 
-      {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mx-4 mt-4 text-sm text-red-600">{error}</p>}
 
-      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-ink-muted">Posts</h2>
-
-      {posts === null && (
-        <div className="mt-3 space-y-3" aria-label="Loading posts">
-          {[0, 1].map((i) => (
-            <div key={i} className="card h-28 animate-pulse bg-black/[0.03]" />
-          ))}
-        </div>
-      )}
-
-      {posts?.length === 0 && (
-        <motion.p initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} className="mt-10 text-center text-ink-muted">
-          No posts yet.
-        </motion.p>
-      )}
-
-      <motion.div layout className="mt-3 space-y-3">
-        {posts?.map((p) => (
-          <Post key={p.id} post={p} viewer={viewer} onChanged={load} />
+      <div role="tablist" aria-label="Profile sections" className="mt-4 flex border-b border-hairline px-2">
+        {PROFILE_TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`focus-ring flex-1 border-b-2 py-3 text-sm font-semibold transition-colors ${
+              tab === t.id ? 'border-primary text-ink' : 'border-transparent text-ink-faint hover:text-ink-secondary'
+            }`}
+          >
+            {t.label}
+          </button>
         ))}
-      </motion.div>
+      </div>
+
+      <div className="px-4">
+        {posts === null && (
+          <div className="mt-4 space-y-3" aria-label="Loading posts">
+            {[0, 1].map((i) => (
+              <div key={i} className="card h-28 animate-pulse bg-black/[0.03]" />
+            ))}
+          </div>
+        )}
+
+        {posts && tab === 'posts' && (
+          <>
+            {posts.length === 0 && <EmptyNote>No posts yet.</EmptyNote>}
+            <motion.div layout className="mt-4 space-y-3">
+              {posts.map((p) => (
+                <Post key={p.id} post={p} viewer={viewer} onChanged={load} />
+              ))}
+            </motion.div>
+          </>
+        )}
+
+        {posts && tab === 'media' && (
+          <>
+            {media.length === 0 ? (
+              <EmptyNote>No photos yet.</EmptyNote>
+            ) : (
+              <div className="mt-4 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
+                {media.map((p) => (
+                  <img key={p.id} src={p.image} alt={p.body ? p.body.slice(0, 80) : `Photo by ${profile.name}`} loading="lazy" className="aspect-square w-full object-cover" />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {posts && tab === 'reels' && (
+          <>
+            {reels.length === 0 ? (
+              <EmptyNote>No reels yet.</EmptyNote>
+            ) : (
+              <div className="mt-4 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
+                {reels.map((p) => (
+                  <video key={p.id} src={p.video} muted playsInline preload="metadata" aria-label={p.body ? p.body.slice(0, 80) : `Reel by ${profile.name}`} className="aspect-[3/4] w-full bg-black object-cover" />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
