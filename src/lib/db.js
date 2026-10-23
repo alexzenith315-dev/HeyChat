@@ -160,6 +160,25 @@ export function toggleSave(postId, saved) {
   return api('PUT', `/api/posts/${postId}/save`, { saved });
 }
 
+// Blocking and reporting. The server enforces every rule; these only call it.
+export function blockUser(userId) {
+  return api('POST', `/api/users/${userId}/block`);
+}
+export function unblockUser(userId) {
+  return api('POST', `/api/users/${userId}/unblock`);
+}
+export function fetchBlocks() {
+  return api('GET', '/api/blocks');
+}
+export function reportUser(userId, reason) {
+  return api('POST', `/api/users/${userId}/report`, { reason });
+}
+
+// Records one share tap and returns the post's new share count.
+export function recordShare(postId) {
+  return api('POST', `/api/posts/${postId}/share`);
+}
+
 export function recordStatusView(statusId) {
   return api('POST', `/api/statuses/${statusId}/view`).catch(() => {});
 }

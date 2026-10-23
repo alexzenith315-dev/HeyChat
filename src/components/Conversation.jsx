@@ -5,7 +5,7 @@ import { ArrowLeft, BellSlash, Bell, ImageSquare, Info, X, PaperPlaneRight, Phon
 import {
   ensureMessagesSchema,
   getConversation,
-  fetchMessages,
+  fetchMessagesWithReads,
   markConversationRead,
   setMuted,
   sendMessage,
@@ -14,13 +14,48 @@ import {
   MAX_MESSAGE,
 } from '../lib/messages';
 import Avatar from './Avatar';
+import BlockReportMenu from './BlockReportMenu';
 import ConversationInfo from './ConversationInfo';
 import { ActiveCall, IncomingCall } from './CallScreen';
 import { getIncomingCallApi, endCallApi } from '../lib/calls';
 import { readUploadDataUrl } from '../lib/db';
+import { onSocketEvent, sendSocketEvent, isLive, startSocket } from '../lib/socket';
 
 const POLL_MS = 3000;
+const TYPING_TTL_MS = 4000;
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
+
+// Checkmarks on my own messages. sent = one grey check, delivered = two grey checks,
+// read = two blue checks. Labelled for screen readers.
+function Receipt({ state }) {
+  if (!state) return null;
+  const color = state === 'read' ? '#3b82f6' : 'currentColor';
+  const label = state === 'read' ? 'Read' : state === 'delivered' ? 'Delivered' : 'Sent';
+  return (
+    <svg
+      role="img"
+      aria-label={label}
+      width={state === 'sent' ? 12 : 16}
+      height="12"
+      viewBox={state === 'sent' ? '0 0 12 12' : '0 0 16 12'}
+      className="ml-1 inline-block align-[-1px]"
+      fill="none"
+      stroke={color}
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {state === 'sent' ? (
+        <path d="M1.5 6.2 4.6 9.2 10.5 2.8" />
+      ) : (
+        <>
+          <path d="M1 6.2 3.8 9 9 3" />
+          <path d="M6.5 6.2 9.3 9 15 2.8" />
+        </>
+      )}
+    </svg>
+  );
+}
 
 export default function Conversation({ viewer }) {
   const { id } = useParams();
@@ -42,10 +77,18 @@ export default function Conversation({ viewer }) {
   const [callError, setCallError] = useState('');
   const listRef = useRef(null);
   const reduce = useReducedMotion();
+  // Other members' read positions: [{ userId, lastReadId }]. Drives the checkmarks.
+  const [readBy, setReadBy] = useState([]);
+  // Who is typing right now: userId -> name. Entries expire after TYPING_TTL_MS.
+  const [typingFrom, setTypingFrom] = useState({});
+  const typingSentRef = useRef(false);
+  const typingStopRef = useRef(null);
+  const [live, setLive] = useState(isLive());
 
   const load = useCallback(async () => {
-    const rows = await fetchMessages(convId);
+    const { messages: rows, readBy: reads } = await fetchMessagesWithReads(convId);
     setMessages(rows);
+    setReadBy(reads);
     setLoadError('');
     await markConversationRead(convId, viewer.id).catch(() => {});
     return rows;
@@ -76,7 +119,8 @@ export default function Conversation({ viewer }) {
   }, [convId, viewer.id, load]);
 
   // Poll for new messages. Errors here are quiet: a dropped poll shouldn't
-  // wipe the thread, and the next tick retries.
+  // wipe the thread, and the next tick retries. Polling always runs; the
+  // socket only makes updates faster, so a dead socket never blocks the thread.
   useEffect(() => {
     if (!conv) return;
     const timer = setInterval(() => {
@@ -84,6 +128,77 @@ export default function Conversation({ viewer }) {
     }, POLL_MS);
     return () => clearInterval(timer);
   }, [conv, load]);
+
+  // Socket: instant new messages, read receipts and typing for this conversation.
+  useEffect(() => {
+    if (!conv) return undefined;
+    startSocket();
+    const off = onSocketEvent((ev) => {
+      if (ev.type === 'open') {
+        setLive(true);
+        load().catch(() => {});
+        return;
+      }
+      if (ev.type === 'closed') {
+        setLive(false);
+        return;
+      }
+      if (ev.conversationId !== convId) return;
+      if (ev.type === 'message') {
+        load().catch(() => {});
+      } else if (ev.type === 'read') {
+        setReadBy((prev) => {
+          const others = prev.filter((r) => r.userId !== ev.userId);
+          return [...others, { userId: ev.userId, lastReadId: ev.lastReadId }];
+        });
+      } else if (ev.type === 'typing') {
+        if (ev.userId === viewer.id) return;
+        setTypingFrom((prev) => {
+          const next = { ...prev };
+          if (ev.active) next[ev.userId] = Date.now();
+          else delete next[ev.userId];
+          return next;
+        });
+      }
+    });
+    return off;
+  }, [conv, convId, viewer.id, load]);
+
+  // Expire typing indicators that stopped updating (the other side closed the tab, etc.).
+  useEffect(() => {
+    if (!Object.keys(typingFrom).length) return undefined;
+    const t = setInterval(() => {
+      const cutoff = Date.now() - TYPING_TTL_MS;
+      setTypingFrom((prev) => {
+        const next = {};
+        for (const [uid, at] of Object.entries(prev)) if (at > cutoff) next[uid] = at;
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [typingFrom]);
+
+  // Tell the other members we're typing. Sends one "active" event, then "inactive"
+  // after 2s of no typing. Socket-only; with no socket, typing just isn't shown.
+  function noteTyping(value) {
+    if (!convId) return;
+    if (value.trim()) {
+      if (!typingSentRef.current) {
+        typingSentRef.current = true;
+        sendSocketEvent({ type: 'typing', conversationId: convId, active: true });
+      }
+      clearTimeout(typingStopRef.current);
+      typingStopRef.current = setTimeout(() => {
+        typingSentRef.current = false;
+        sendSocketEvent({ type: 'typing', conversationId: convId, active: false });
+      }, 2000);
+    } else if (typingSentRef.current) {
+      clearTimeout(typingStopRef.current);
+      typingSentRef.current = false;
+      sendSocketEvent({ type: 'typing', conversationId: convId, active: false });
+    }
+  }
+
 
   useEffect(() => {
     const el = listRef.current;
@@ -138,6 +253,28 @@ export default function Conversation({ viewer }) {
   const isGroup = conv?.kind !== 'dm';
   const canPost = conv && (conv.kind !== 'channel' || conv.createdBy === viewer.id);
   const remaining = MAX_MESSAGE - body.length;
+  // Names of other members currently typing, for the header line.
+  const typingNames = (() => {
+    const ids = Object.keys(typingFrom).map(Number);
+    if (!ids.length) return '';
+    const names = ids.map((uid) => {
+      const m = messages?.find((x) => x.senderId === uid);
+      if (m) return m.sender;
+      return conv?.kind === 'dm' ? conv.title : 'Someone';
+    });
+    return [...new Set(names)].join(', ');
+  })();
+  // Read state for my messages. Read: another member's lastReadId reached this
+  // message's id. Delivered: the server has no delivery receipt, so we count it as
+  // delivered once another member is in the conversation and a socket is live here.
+  // This is an assumption; there is no server-confirmed delivery state.
+  function receiptFor(m) {
+    if (m.senderId !== viewer.id) return null;
+    const others = readBy.filter((r) => r.userId !== viewer.id);
+    if (others.some((r) => r.lastReadId >= m.id)) return 'read';
+    if (others.length && live) return 'delivered';
+    return 'sent';
+  }
 
   // Ring check, DMs only. Polls once a second; a call is only shown for this
   // conversation, and a DM open elsewhere still rings the callee.
@@ -187,6 +324,52 @@ export default function Conversation({ viewer }) {
 
   const closeCall = useCallback(() => setCall(null), []);
 
+  // Ring check, DMs only. Polls once a second; a call is only shown for this
+  // conversation, and a DM open elsewhere still rings the callee.
+  useEffect(() => {
+    if (!conv || conv.kind !== 'dm' || call) return undefined;
+    let alive = true;
+    const t = setInterval(async () => {
+      try {
+        const c = await getIncomingCallApi();
+        if (!alive) return;
+        setIncoming(c && c.conversationId === convId ? c : null);
+      } catch {
+        // Quiet: a dropped poll retries on the next tick.
+      }
+    }, 1000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [conv, convId, call]);
+
+  async function acceptCall() {
+    setCallBusy(true);
+    setCallError('');
+    setCall({ kind: incoming.kind, role: 'incoming', incoming });
+    setIncoming(null);
+    setCallBusy(false);
+  }
+
+  async function declineCall() {
+    if (!incoming) return;
+    setCallBusy(true);
+    try {
+      await endCallApi(incoming.id);
+      setIncoming(null);
+    } catch (err) {
+      setCallError(err.message);
+    } finally {
+      setCallBusy(false);
+    }
+  }
+
+  function startCall(kind) {
+    setCallError('');
+    setCall({ kind, role: 'outgoing' });
+  }
+
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-xl flex-col">
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-hairline bg-canvas-soft/80 px-4 py-3 backdrop-blur-xl">
@@ -197,8 +380,16 @@ export default function Conversation({ viewer }) {
         <div className="min-w-0 flex-1">
           <h1 className="truncate font-display text-lg font-bold tracking-tight text-ink">{conv?.title ?? 'Conversation'}</h1>
           {conv && (
-            <p className="truncate text-xs text-ink-faint">
-              {conv.kind === 'dm' ? 'Direct message' : conv.kind === 'group' ? conv.members.join(', ') : 'Channel'}
+            <p className="truncate text-xs text-ink-faint" aria-live="polite">
+              {typingNames ? (
+                <span className="text-primary">{typingNames} typing…</span>
+              ) : conv.kind === 'dm' ? (
+                'Direct message'
+              ) : conv.kind === 'group' ? (
+                conv.members.join(', ')
+              ) : (
+                'Channel'
+              )}
             </p>
           )}
         </div>
@@ -231,6 +422,10 @@ export default function Conversation({ viewer }) {
             Info
           </button>
         )}
+        {conv && conv.kind === 'dm' && conv.memberList?.some((m) => m.id !== viewer.id) && (() => {
+          const peer = conv.memberList.find((m) => m.id !== viewer.id);
+          return <BlockReportMenu userId={peer.id} userName={peer.name} blocked={false} />;
+        })()}
         {conv && (
           <button
             onClick={toggleMute}
@@ -293,6 +488,7 @@ export default function Conversation({ viewer }) {
                   </div>
                   <time className="mt-0.5 px-1 text-[11px] text-ink-faint" dateTime={new Date(m.createdAt).toISOString()}>
                     {new Date(m.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    {mine && <Receipt state={receiptFor(m)} />}
                   </time>
                 </div>
               </motion.div>
@@ -337,7 +533,11 @@ export default function Conversation({ viewer }) {
               </label>
               <textarea
                 value={body}
-                onChange={(e) => setBody(e.target.value.slice(0, MAX_MESSAGE))}
+                onChange={(e) => {
+                  const v = e.target.value.slice(0, MAX_MESSAGE);
+                  setBody(v);
+                  noteTyping(v);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) send(e);
                 }}

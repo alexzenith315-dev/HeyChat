@@ -5,6 +5,7 @@ import { GridFour, Image as ImageIcon, FilmStrip, BookmarkSimple, ArrowLeft, Mag
 import { fetchProfile, fetchFeed, toggleFollowUser, fetchSaved } from '../lib/db';
 import Post from './Post';
 import Avatar from './Avatar';
+import BlockReportMenu from './BlockReportMenu';
 import { isVideoPost, ReelTile } from './Feed';
 
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
@@ -191,6 +192,12 @@ export default function Profile({ viewer }) {
                   </Link>
                 </>
               ) : (
+                <>
+                <BlockReportMenu
+                  userId={profile.id}
+                  userName={profile.name}
+                  blocked={false}
+                />
                 <motion.button
                   whileTap={reduce ? undefined : { scale: 0.94 }}
                   transition={spring}
@@ -203,6 +210,7 @@ export default function Profile({ viewer }) {
                 >
                   {profile.followed ? 'Following' : 'Follow'}
                 </motion.button>
+                </>
               )}
             </div>
           </div>

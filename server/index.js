@@ -8,6 +8,18 @@ import path from 'path';
 import fs from 'fs';
 import { GIFT_CATALOG } from './gift-catalog.js';
 import { migrateCalls, registerCallRoutes } from './calls.js';
+import http from 'http';
+import { createRealtime } from './realtime.js';
+
+// Set once the HTTP server is listening. Routes call through this, so they still
+// work (polling clients keep working) before the socket layer is up.
+let realtime = null;
+const rt = {
+  broadcastMessage: (...a) => realtime?.broadcastMessage(...a),
+  broadcastRead: (...a) => realtime?.broadcastRead(...a),
+  joinConversation: (...a) => realtime?.joinConversation(...a),
+  leaveConversation: (...a) => realtime?.leaveConversation(...a),
+};
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +37,8 @@ pg.types.setTypeParser(1700, (v) => Number(v));
 const pool = new pg.Pool({
   connectionString: DATABASE_URL,
   max: 5,
-  ssl: { rejectUnauthorized: false },
+  // Supabase requires TLS. Local test Postgres sets PGSSL=off to skip it.
+  ssl: process.env.PGSSL === 'off' ? false : { rejectUnauthorized: false },
 });
 
 // The SQL below uses ? placeholders (portable style from the original app). Convert to $n.
@@ -246,8 +259,10 @@ app.get(
   '/api/users',
   wrap(async (req, res) => {
     const rows = await q(
-      'SELECT id, name, avatar, last_seen FROM users WHERE banned = false AND id <> ? ORDER BY lower(name)',
-      [me(req)],
+      `SELECT id, name, avatar, last_seen FROM users u WHERE banned = false AND id <> ?
+         AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = ? AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = ?))
+       ORDER BY lower(name)`,
+      [me(req), me(req), me(req)],
     );
     res.json(rows.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar ?? null, online: isOnline(u.last_seen) })));
   }),
@@ -287,11 +302,13 @@ app.get(
       `SELECT u.id, u.name, u.bio, u.avatar, u.cover, u.created_at,
          (SELECT COUNT(*) FROM follows WHERE followee_id = u.id) AS followers,
          (SELECT COUNT(*) FROM follows WHERE follower_id = u.id) AS following,
-         (SELECT COUNT(*) FROM follows WHERE follower_id = ? AND followee_id = u.id) AS followed
-       FROM users u WHERE u.id = ?`,
+         (SELECT COUNT(*) FROM follows WHERE follower_id = ? AND followee_id = u.id) AS followed,
+         (SELECT COUNT(*) FROM posts WHERE user_id = u.id) AS post_count
+       FROM users u WHERE u.id = ? AND u.banned = false`,
       [me(req), id],
     );
     if (!u) return res.status(404).json({ error: 'No such person.' });
+    if (await isBlockedEitherWay(me(req), id)) return res.status(404).json({ error: 'No such person.' });
     res.json({
       id: u.id,
       name: u.name,
@@ -302,6 +319,7 @@ app.get(
       followers: Number(u.followers),
       following: Number(u.following),
       followed: Number(u.followed) > 0,
+      posts: Number(u.post_count),
     });
   }),
 );
@@ -527,6 +545,7 @@ app.put(
 const PAGE_SIZE = 20;
 const ADMIN_PAGE = 25;
 const VIDEO_MIME = /^data:(video\/(mp4|webm));base64,/;
+const IMAGE_DATA_URL = /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/;
 
 app.get(
   '/api/feed',
@@ -547,12 +566,16 @@ app.get(
       where.push('(p.user_id = ? OR p.user_id IN (SELECT followee_id FROM follows WHERE follower_id = ?))');
       args.push(viewer, viewer);
     }
+    // Authors blocked either way never show up in anyone's feed.
+    where.push('NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = ? AND b.blocked_id = p.user_id) OR (b.blocker_id = p.user_id AND b.blocked_id = ?))');
+    args.push(viewer, viewer);
     args.push(PAGE_SIZE + 1);
     const posts = await q(
       `SELECT p.id, p.body, p.image, p.video, p.created_at, p.user_id, u.name AS author, u.avatar AS author_avatar,
          (SELECT COUNT(*) FROM post_views v WHERE v.post_id = p.id) AS views,
          (SELECT COUNT(*) FROM post_saves s WHERE s.post_id = p.id AND s.user_id = ?) AS saved,
-         (SELECT COUNT(*) FROM post_saves s WHERE s.post_id = p.id) AS saves
+         (SELECT COUNT(*) FROM post_saves s WHERE s.post_id = p.id) AS saves,
+         (SELECT COUNT(*) FROM post_shares sh WHERE sh.post_id = p.id) AS shares
        FROM posts p JOIN users u ON u.id = p.user_id
        WHERE ${where.join(' AND ')}
        ORDER BY p.id DESC LIMIT ?`,
@@ -601,6 +624,7 @@ app.get(
         views: Number(p.views),
         saved: Number(p.saved) > 0,
         saves: Number(p.saves),
+        shares: Number(p.shares),
         reactions: reactions[p.id] ?? {},
         comments: comments[p.id] ?? [],
         followed: followed.has(Number(p.user_id)),
@@ -961,6 +985,15 @@ app.get(
 
 /* ---- messaging ---- */
 
+// True when either person has blocked the other.
+async function isBlockedEitherWay(a, b) {
+  const row = await one(
+    'SELECT 1 AS x FROM user_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?) LIMIT 1',
+    [a, b, b, a],
+  );
+  return !!row;
+}
+
 async function requireMember(conversationId, userId) {
   const row = await one('SELECT conversation_id FROM conversation_members WHERE conversation_id = ? AND user_id = ?', [
     conversationId,
@@ -1118,8 +1151,12 @@ app.get(
        ) t ORDER BY id ASC`,
       [id],
     );
-    res.json(
-      rows.map((m) => ({
+    const readBy = await q(
+      'SELECT user_id, last_read_id FROM conversation_members WHERE conversation_id = ? AND user_id <> ?',
+      [id, me(req)],
+    );
+    res.json({
+      messages: rows.map((m) => ({
         id: m.id,
         body: m.body ?? '',
         image: m.image ?? null,
@@ -1128,7 +1165,8 @@ app.get(
         sender: m.sender ?? 'Someone',
         senderAvatar: m.sender_avatar ?? null,
       })),
-    );
+      readBy: readBy.map((r) => ({ userId: Number(r.user_id), lastReadId: Number(r.last_read_id) })),
+    });
   }),
 );
 
@@ -1143,7 +1181,9 @@ app.post(
        WHERE conversation_id = ? AND user_id = ?`,
       [id, id, me(req)],
     );
-    res.json({ ok: true });
+    const row = await one('SELECT last_read_id FROM conversation_members WHERE conversation_id = ? AND user_id = ?', [id, me(req)]);
+    rt.broadcastRead(id, me(req), Number(row?.last_read_id ?? 0));
+    res.json({ ok: true, lastReadId: Number(row?.last_read_id ?? 0) });
   }),
 );
 
@@ -1179,14 +1219,29 @@ app.post(
     );
     if (!c) return res.status(404).json({ error: 'Not in this conversation.' });
     if (c.kind === 'channel' && c.created_by !== me(req)) bad('Only the creator can post in this channel.');
-    await exec('INSERT INTO messages (conversation_id, sender_id, body, image, created_at) VALUES (?, ?, ?, ?, ?)', [
-      id,
-      me(req),
-      text,
+    if (c.kind === 'dm') {
+      const other = await one(
+        'SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id <> ? LIMIT 1',
+        [id, me(req)],
+      );
+      if (other && (await isBlockedEitherWay(me(req), other.user_id))) bad('You can’t message this person.', 403);
+    }
+    const createdAt = Date.now();
+    const inserted = await one(
+      'INSERT INTO messages (conversation_id, sender_id, body, image, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id',
+      [id, me(req), text, image, createdAt],
+    );
+    const message = {
+      id: Number(inserted.id),
+      body: text,
       image,
-      Date.now(),
-    ]);
-    res.json({ ok: true });
+      createdAt,
+      senderId: me(req),
+      sender: req.user?.name ?? 'Someone',
+      senderAvatar: null,
+    };
+    rt.broadcastMessage(id, message);
+    res.json({ ok: true, message });
   }),
 );
 
@@ -1200,6 +1255,7 @@ app.post(
 
     if (kind === 'dm') {
       if (memberIds.length !== 1) bad('Pick one person to message.');
+      if (await isBlockedEitherWay(creatorId, memberIds[0])) bad('You can’t message this person.', 403);
       const existing = await one(
         `SELECT c.id FROM conversations c
          JOIN conversation_members a ON a.conversation_id = c.id AND a.user_id = ?
@@ -1228,6 +1284,82 @@ app.post(
       })),
     );
     res.json({ id: created.id });
+  }),
+);
+
+/* ---- blocking, reporting, shares ---- */
+
+app.post(
+  '/api/users/:id/block',
+  wrap(async (req, res) => {
+    const target = Number(req.params.id);
+    if (!Number.isInteger(target)) bad('Bad request.');
+    if (target === me(req)) bad('You can’t block yourself.');
+    const u = await one('SELECT id FROM users WHERE id = ?', [target]);
+    if (!u) return res.status(404).json({ error: 'No such person.' });
+    await exec('INSERT INTO user_blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [
+      me(req),
+      target,
+      Date.now(),
+    ]);
+    res.json({ ok: true, blocked: true });
+  }),
+);
+
+app.post(
+  '/api/users/:id/unblock',
+  wrap(async (req, res) => {
+    const target = Number(req.params.id);
+    if (!Number.isInteger(target)) bad('Bad request.');
+    await exec('DELETE FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?', [me(req), target]);
+    res.json({ ok: true, blocked: false });
+  }),
+);
+
+// The block list shown in Settings: people the signed-in user has blocked.
+app.get(
+  '/api/blocks',
+  wrap(async (req, res) => {
+    const rows = await q(
+      `SELECT u.id, u.name, u.avatar FROM user_blocks b JOIN users u ON u.id = b.blocked_id
+       WHERE b.blocker_id = ? ORDER BY b.created_at DESC`,
+      [me(req)],
+    );
+    res.json(rows.map((r) => ({ id: Number(r.id), name: r.name, avatar: r.avatar ?? null })));
+  }),
+);
+
+app.post(
+  '/api/users/:id/report',
+  wrap(async (req, res) => {
+    const target = Number(req.params.id);
+    const reason = String(req.body?.reason ?? '').trim();
+    if (!Number.isInteger(target)) bad('Bad request.');
+    if (target === me(req)) bad('You can’t report yourself.');
+    if (!reason) bad('Tell us what happened.');
+    if (reason.length > 1000) bad('Keep the report under 1000 characters.');
+    const u = await one('SELECT id FROM users WHERE id = ?', [target]);
+    if (!u) return res.status(404).json({ error: 'No such person.' });
+    await exec('INSERT INTO user_reports (reporter_id, target_user_id, reason, created_at) VALUES (?, ?, ?, ?)', [
+      me(req),
+      target,
+      reason,
+      Date.now(),
+    ]);
+    res.json({ ok: true });
+  }),
+);
+
+// Each tap is one row, so the count is total taps on the post.
+app.post(
+  '/api/posts/:id/share',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const p = await one('SELECT id FROM posts WHERE id = ?', [id]);
+    if (!p) return res.status(404).json({ error: 'No such post.' });
+    await exec('INSERT INTO post_shares (post_id, user_id, created_at) VALUES (?, ?, ?)', [id, me(req), Date.now()]);
+    const row = await one('SELECT COUNT(*) AS n FROM post_shares WHERE post_id = ?', [id]);
+    res.json({ ok: true, shares: Number(row.n) });
   }),
 );
 
@@ -1337,6 +1469,8 @@ app.post(
   }),
 );
 
+registerCallRoutes(app, { wrap, bad, one, q, exec, me, requireMember });
+
 app.get(
   '/api/admin/invites',
   requireAdmin,
@@ -1369,7 +1503,6 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'No such route.' }))
 /* ---------- static frontend ---------- */
 
 const distDir = path.join(__dirname, '..', 'dist');
-registerCallRoutes(app, { wrap, bad, one, q, exec, me, requireMember });
 
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir));
@@ -1396,6 +1529,13 @@ async function migrate() {
   await exec('CREATE INDEX IF NOT EXISTS statuses_user_created ON statuses (user_id, created_at)');
   await exec('CREATE TABLE IF NOT EXISTS status_media (status_id INTEGER NOT NULL, position INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT \'image\', data TEXT NOT NULL, PRIMARY KEY (status_id, position))');
   await exec('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen BIGINT');
+  await migrateCalls(exec);
+  // Blocks are one-directional rows, but every check looks both ways.
+  await exec('CREATE TABLE IF NOT EXISTS user_blocks (blocker_id INTEGER NOT NULL REFERENCES users(id), blocked_id INTEGER NOT NULL REFERENCES users(id), created_at BIGINT NOT NULL, PRIMARY KEY (blocker_id, blocked_id))');
+  await exec('CREATE TABLE IF NOT EXISTS user_reports (id SERIAL PRIMARY KEY, reporter_id INTEGER NOT NULL REFERENCES users(id), target_user_id INTEGER REFERENCES users(id), post_id INTEGER, reason TEXT NOT NULL, created_at BIGINT NOT NULL)');
+  // Read receipts: per member, the newest message id they have seen (last_read_id already exists).
+  await exec('CREATE TABLE IF NOT EXISTS post_shares (post_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL)');
+  await exec('CREATE INDEX IF NOT EXISTS post_shares_post ON post_shares (post_id)');
   await exec('CREATE TABLE IF NOT EXISTS post_views (post_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (post_id, user_id))');
   await exec('CREATE TABLE IF NOT EXISTS status_views (status_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (status_id, user_id))');
   await exec('CREATE TABLE IF NOT EXISTS post_saves (post_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (post_id, user_id))');
@@ -1415,8 +1555,10 @@ async function seedGifts() {
     }
   }
 }
-
 migrate()
   .catch((e) => console.error('Migration failed', e))
-  .finally(() => app.listen(PORT, () => console.log(`HeyChat API on :${PORT}`)));
-  await migrateCalls(exec);
+  .finally(() => {
+    const server = http.createServer(app);
+    realtime = createRealtime(server, { jwtSecret: JWT_SECRET, one, q });
+    server.listen(PORT, () => console.log(`HeyChat API on :${PORT} (ws on /ws)`));
+  });

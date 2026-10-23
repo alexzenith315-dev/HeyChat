@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CaretRight, SignOut } from '@phosphor-icons/react';
-import { setToken, listInvites, createInvite, updateEmail } from '../lib/db';
+import { setToken, listInvites, createInvite, updateEmail, fetchBlocks, unblockUser } from '../lib/db';
 import { getTheme, setTheme } from '../lib/theme';
 import Avatar from './Avatar';
 
@@ -32,6 +32,31 @@ export default function Settings({ viewer, onLogout }) {
   const [email, setEmail] = useState(viewer.email ?? '');
   const [emailSaved, setEmailSaved] = useState('');
   const [theme, setThemeState] = useState(getTheme);
+  // Blocked people: null while loading. Unblock is a real server call, then the row goes.
+  const [blocked, setBlocked] = useState(null);
+  const [unblockingId, setUnblockingId] = useState(null);
+  const [blockError, setBlockError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchBlocks()
+      .then((rows) => { if (!cancelled) setBlocked(rows); })
+      .catch(() => { if (!cancelled) { setBlocked([]); setBlockError('Could not load blocked people.'); } });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function unblock(id) {
+    setBlockError('');
+    setUnblockingId(id);
+    try {
+      await unblockUser(id);
+      setBlocked((prev) => (prev ?? []).filter((b) => b.id !== id));
+    } catch (e) {
+      setBlockError(e.message || 'Could not unblock that person.');
+    } finally {
+      setUnblockingId(null);
+    }
+  }
 
   async function saveEmail(e) {
     e.preventDefault();
@@ -121,6 +146,33 @@ export default function Settings({ viewer, onLogout }) {
           <Row to="/notifications">Notifications</Row>
           {viewer.isAdmin && <Row to="/admin">Admin panel</Row>}
         </div>
+      </section>
+
+      <section className="card mt-4 overflow-hidden" aria-labelledby="blocked-h">
+        <h2 id="blocked-h" className="px-5 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-ink-muted">Blocked people</h2>
+        {blocked === null ? (
+          <p className="px-5 pb-4 text-sm text-ink-muted">Loading…</p>
+        ) : blocked.length === 0 ? (
+          <p className="px-5 pb-4 text-sm text-ink-muted">You haven’t blocked anyone.</p>
+        ) : (
+          <ul className="divide-y divide-hairline">
+            {blocked.map((b) => (
+              <li key={b.id} className="flex items-center gap-3 px-5 py-3">
+                <Avatar user={b} size={32} />
+                <span className="min-w-0 flex-1 truncate text-sm text-ink">{b.name}</span>
+                <button
+                  type="button"
+                  onClick={() => unblock(b.id)}
+                  disabled={unblockingId === b.id}
+                  className="focus-ring rounded-full border border-hairline px-3 py-1 text-sm text-ink hover:bg-ink/5 disabled:opacity-50"
+                >
+                  Unblock
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {blockError && <p role="alert" className="px-5 pb-4 text-sm text-danger">{blockError}</p>}
       </section>
 
       {viewer.isAdmin && (

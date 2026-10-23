@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Heart, Gift, ChatCircle, ShareNetwork, BookmarkSimple } from '@phosphor-icons/react';
-import { toggleLike, toggleSave, recordView, addComment, deletePost, deleteComment, followUser, unfollowUser } from '../lib/db';
+import { toggleLike, toggleSave, recordView, addComment, deletePost, deleteComment, followUser, unfollowUser, recordShare } from '../lib/db';
 import { timeAgo } from '../lib/time';
 import Avatar from './Avatar';
 import GiftSheet from './GiftSheet';
@@ -18,6 +18,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState('');
   const [copied, setCopied] = useState(false);
+  const [shares, setShares] = useState(Number(post.shares ?? 0));
   const [saved, setSaved] = useState(!!post.saved);
   const [views, setViews] = useState(Number(post.views ?? 0));
   const cardRef = useRef(null);
@@ -59,11 +60,19 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
     try {
       if (navigator.share) await navigator.share({ title: `${post.author} on Crew`, url });
       else await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
     } catch {
-      /* share cancelled */
+      /* share sheet dismissed: no tap is recorded */
+      return;
     }
+    // Count the tap on the server, then show the count the server returns.
+    try {
+      const res = await recordShare(post.id);
+      if (typeof res?.shares === 'number') setShares(res.shares);
+    } catch {
+      /* count stays at its last known value */
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   }
   const reduce = useReducedMotion();
   const canDelete = viewer.id === post.user_id || viewer.isAdmin;
@@ -220,7 +229,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
           className="focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm text-ink-secondary hover:bg-ink/5"
         >
           <ShareNetwork size={20} aria-hidden="true" />
-          <span className="text-xs">{copied ? 'Copied' : ''}</span>
+          <span className="tabular-nums">{copied ? 'Copied' : shares > 0 ? shares : ''}</span>
         </button>
         <button
           onClick={bookmark}

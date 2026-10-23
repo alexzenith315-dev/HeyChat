@@ -1,5 +1,6 @@
 // Messaging client. Talks to the Express API (server/index.js) like db.js does.
 import { api, MAX_UPLOAD_BYTES } from './db';
+import { sendSocketEvent } from './socket';
 
 export const MAX_MESSAGE = 1000;
 export const MAX_MESSAGE_IMAGE_BYTES = MAX_UPLOAD_BYTES;
@@ -38,11 +39,25 @@ export function removeConversationMember(id, userId) {
 }
 
 export function fetchMessages(conversationId) {
-  return api('GET', `/api/conversations/${conversationId}/messages`);
+  return api('GET', `/api/conversations/${conversationId}/messages`).then((r) => r.messages ?? r);
+}
+
+// Messages plus each other member's read position, from one request.
+export function fetchMessagesWithReads(conversationId) {
+  return api('GET', `/api/conversations/${conversationId}/messages`).then((r) => ({
+    messages: r.messages ?? r,
+    readBy: r.readBy ?? [],
+  }));
+}
+
+// Typing is sent over the socket only; the server relays it to the other members.
+export function sendTyping(conversationId, active) {
+  sendSocketEvent({ type: 'typing', conversationId, active });
 }
 
 export async function markConversationRead(conversationId) {
-  await api('POST', `/api/conversations/${conversationId}/read`);
+  const r = await api('POST', `/api/conversations/${conversationId}/read`);
+  return r?.lastReadId ?? null;
 }
 
 export async function setMuted(conversationId, viewerId, muted) {
