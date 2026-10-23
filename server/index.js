@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import { GIFT_CATALOG } from './gift-catalog.js';
+import { migrateCalls, registerCallRoutes } from './calls.js';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1368,6 +1369,8 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'No such route.' }))
 /* ---------- static frontend ---------- */
 
 const distDir = path.join(__dirname, '..', 'dist');
+registerCallRoutes(app, { wrap, bad, one, q, exec, me, requireMember });
+
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir));
   app.get('*', (req, res) => res.sendFile(path.join(distDir, 'index.html')));
@@ -1416,3 +1419,4 @@ async function seedGifts() {
 migrate()
   .catch((e) => console.error('Migration failed', e))
   .finally(() => app.listen(PORT, () => console.log(`HeyChat API on :${PORT}`)));
+  await migrateCalls(exec);

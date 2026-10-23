@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ArrowLeft, BellSlash, Bell, ImageSquare, Info, X, PaperPlaneRight } from '@phosphor-icons/react';
+import { ArrowLeft, BellSlash, Bell, ImageSquare, Info, X, PaperPlaneRight, Phone, VideoCamera } from '@phosphor-icons/react';
 import {
   ensureMessagesSchema,
   getConversation,
@@ -15,6 +15,8 @@ import {
 } from '../lib/messages';
 import Avatar from './Avatar';
 import ConversationInfo from './ConversationInfo';
+import { ActiveCall, IncomingCall } from './CallScreen';
+import { getIncomingCallApi, endCallApi } from '../lib/calls';
 import { readUploadDataUrl } from '../lib/db';
 
 const POLL_MS = 3000;
@@ -33,6 +35,11 @@ export default function Conversation({ viewer }) {
   const [busy, setBusy] = useState(false);
   const [muteBusy, setMuteBusy] = useState(false);
   const [muteError, setMuteError] = useState('');
+  // Call state. `call` is the screen currently shown: { kind, role, incoming? }.
+  const [call, setCall] = useState(null);
+  const [incoming, setIncoming] = useState(null);
+  const [callBusy, setCallBusy] = useState(false);
+  const [callError, setCallError] = useState('');
   const listRef = useRef(null);
   const reduce = useReducedMotion();
 
@@ -132,6 +139,54 @@ export default function Conversation({ viewer }) {
   const canPost = conv && (conv.kind !== 'channel' || conv.createdBy === viewer.id);
   const remaining = MAX_MESSAGE - body.length;
 
+  // Ring check, DMs only. Polls once a second; a call is only shown for this
+  // conversation, and a DM open elsewhere still rings the callee.
+  useEffect(() => {
+    if (!conv || conv.kind !== 'dm' || call) return undefined;
+    let alive = true;
+    const t = setInterval(async () => {
+      try {
+        const c = await getIncomingCallApi();
+        if (!alive) return;
+        setIncoming(c && c.conversationId === convId ? c : null);
+      } catch {
+        // Quiet: a dropped poll retries on the next tick.
+      }
+    }, 1000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [conv, convId, call]);
+
+  async function acceptCall() {
+    setCallBusy(true);
+    setCallError('');
+    setCall({ kind: incoming.kind, role: 'incoming', incoming });
+    setIncoming(null);
+    setCallBusy(false);
+  }
+
+  async function declineCall() {
+    if (!incoming) return;
+    setCallBusy(true);
+    try {
+      await endCallApi(incoming.id);
+      setIncoming(null);
+    } catch (err) {
+      setCallError(err.message);
+    } finally {
+      setCallBusy(false);
+    }
+  }
+
+  function startCall(kind) {
+    setCallError('');
+    setCall({ kind, role: 'outgoing' });
+  }
+
+  const closeCall = useCallback(() => setCall(null), []);
+
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-xl flex-col">
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-hairline bg-canvas-soft/80 px-4 py-3 backdrop-blur-xl">
@@ -147,6 +202,26 @@ export default function Conversation({ viewer }) {
             </p>
           )}
         </div>
+        {conv && conv.kind === 'dm' && (
+          <>
+            <button
+              type="button"
+              onClick={() => startCall('voice')}
+              aria-label="Voice call"
+              className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-ink/5 active:scale-[0.96] transition"
+            >
+              <Phone size={20} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => startCall('video')}
+              aria-label="Video call"
+              className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-ink/5 active:scale-[0.96] transition"
+            >
+              <VideoCamera size={20} aria-hidden="true" />
+            </button>
+          </>
+        )}
         {conv && conv.kind !== 'dm' && (
           <button
             onClick={() => setInfoOpen(true)}
@@ -170,6 +245,14 @@ export default function Conversation({ viewer }) {
       </header>
 
       {muteError && <p role="alert" className="px-4 pt-3 text-sm text-danger">{muteError}</p>}
+      {callError && <p role="alert" className="px-4 pt-3 text-sm text-danger">{callError}</p>}
+
+      {call && conv && (
+        <ActiveCall key={`${call.role}-${call.kind}-${call.incoming?.id ?? 'new'}`} conv={conv} kind={call.kind} role={call.role} incoming={call.incoming} onClose={closeCall} />
+      )}
+      {!call && incoming && conv && (
+        <IncomingCall call={incoming} busy={callBusy} onAccept={acceptCall} onDecline={declineCall} />
+      )}
 
       <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 pb-4 pt-4" style={{ maxHeight: '70dvh' }}>
         {loadError && <p role="alert" className="text-sm text-danger">{loadError}</p>}
