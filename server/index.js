@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
+import { GIFT_CATALOG } from './gift-catalog.js';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -822,7 +823,7 @@ app.get(
 app.get(
   '/api/gifts',
   wrap(async (req, res) => {
-    const rows = await q('SELECT id, name, tier, coin_cost, emoji FROM gifts ORDER BY coin_cost ASC, id ASC');
+    const rows = await q('SELECT id, name, tier, coin_cost, emoji, category FROM gifts ORDER BY coin_cost ASC, id ASC');
     res.json(rows);
   }),
 );
@@ -1367,7 +1368,22 @@ async function migrate() {
   await exec('CREATE TABLE IF NOT EXISTS status_views (status_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (status_id, user_id))');
   await exec('CREATE TABLE IF NOT EXISTS post_saves (post_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (post_id, user_id))');
   await exec('CREATE TABLE IF NOT EXISTS status_saves (status_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (status_id, user_id))');
+  await seedGifts();
 }
+
+// Upserts the full gift catalog by name. Existing rows keep their id so gift_sends and transactions stay linked.
+async function seedGifts() {
+  await exec('ALTER TABLE gifts ADD COLUMN IF NOT EXISTS category TEXT');
+  for (const g of GIFT_CATALOG) {
+    const hit = await one('SELECT id FROM gifts WHERE name = ? ORDER BY id LIMIT 1', [g.name]);
+    if (hit) {
+      await exec('UPDATE gifts SET tier = ?, coin_cost = ?, emoji = ?, category = ? WHERE id = ?', [g.tier, g.coin_cost, g.emoji, g.category, hit.id]);
+    } else {
+      await exec('INSERT INTO gifts (name, tier, coin_cost, emoji, category) VALUES (?, ?, ?, ?, ?)', [g.name, g.tier, g.coin_cost, g.emoji, g.category]);
+    }
+  }
+}
+
 migrate()
   .catch((e) => console.error('Migration failed', e))
   .finally(() => app.listen(PORT, () => console.log(`HeyChat API on :${PORT}`)));
