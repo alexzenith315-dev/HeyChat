@@ -109,8 +109,12 @@ async function requireAuth(req, res, next) {
     } catch {
       return res.status(401).json({ error: 'Your session expired. Sign in again.' });
     }
-    const u = await one('SELECT id, name, is_admin, banned, email FROM users WHERE id = ?', [Number(payload.sub)]);
+    const u = await one('SELECT id, name, is_admin, banned, email, last_seen FROM users WHERE id = ?', [Number(payload.sub)]);
     if (!u || u.banned) return res.status(401).json({ error: 'Sign in first.' });
+    const now = Date.now();
+    if (!u.last_seen || now - Number(u.last_seen) > 60_000) {
+      exec('UPDATE users SET last_seen = ? WHERE id = ?', [now, Number(u.id)]).catch(() => {});
+    }
     req.user = { id: Number(u.id), name: u.name, isAdmin: !!u.is_admin, email: u.email ?? null };
     next();
   } catch (e) {
@@ -209,10 +213,10 @@ app.get(
   '/api/users',
   wrap(async (req, res) => {
     const rows = await q(
-      'SELECT id, name, avatar FROM users WHERE banned = false AND id <> ? ORDER BY lower(name)',
+      'SELECT id, name, avatar, last_seen FROM users WHERE banned = false AND id <> ? ORDER BY lower(name)',
       [me(req)],
     );
-    res.json(rows.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar ?? null })));
+    res.json(rows.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar ?? null, online: isOnline(u.last_seen) })));
   }),
 );
 
@@ -308,17 +312,24 @@ app.put(
 
 // Statuses: a text and/or image that disappears after 24 hours.
 const STATUS_TTL_MS = 24 * 60 * 60 * 1000;
+// A user is online if they made an authenticated request in the last 5 minutes.
+const ONLINE_MS = 5 * 60 * 1000;
+function isOnline(lastSeen) {
+  return lastSeen ? Date.now() - Number(lastSeen) < ONLINE_MS : false;
+}
 
 app.get(
   '/api/statuses',
   wrap(async (req, res) => {
     const rows = await q(
-      `SELECT s.id, s.user_id, s.body, s.image, s.created_at, u.name, u.avatar
+      `SELECT s.id, s.user_id, s.body, s.image, s.created_at, u.name, u.avatar,
+         (SELECT COUNT(*) FROM status_views v WHERE v.status_id = s.id) AS views,
+         (SELECT COUNT(*) FROM status_saves v WHERE v.status_id = s.id AND v.user_id = ?) AS saved
        FROM statuses s JOIN users u ON u.id = s.user_id
        WHERE s.created_at > ? AND u.banned = false
          AND (s.user_id = ? OR s.user_id IN (SELECT followee_id FROM follows WHERE follower_id = ?))
        ORDER BY s.created_at DESC LIMIT 200`,
-      [Date.now() - STATUS_TTL_MS, me(req), me(req)],
+      [me(req), Date.now() - STATUS_TTL_MS, me(req), me(req)],
     );
     res.json(
       rows.map((r) => ({
@@ -330,8 +341,35 @@ app.get(
         image: r.image ?? null,
         createdAt: Number(r.created_at),
         mine: Number(r.user_id) === me(req),
+        views: Number(r.views),
+        saved: Number(r.saved) > 0,
       })),
     );
+  }),
+);
+
+// Counts a view once per viewer. Called when a status is opened.
+app.post(
+  '/api/statuses/:id/view',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) bad('Bad request.');
+    await exec('INSERT INTO status_views (status_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [id, me(req), Date.now()]);
+    res.json({ ok: true });
+  }),
+);
+
+app.put(
+  '/api/statuses/:id/save',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) bad('Bad request.');
+    if (req.body?.saved) {
+      await exec('INSERT INTO status_saves (status_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [id, me(req), Date.now()]);
+    } else {
+      await exec('DELETE FROM status_saves WHERE status_id = ? AND user_id = ?', [id, me(req)]);
+    }
+    res.json({ ok: true });
   }),
 );
 
@@ -412,11 +450,13 @@ app.get(
     }
     args.push(PAGE_SIZE + 1);
     const posts = await q(
-      `SELECT p.id, p.body, p.image, p.video, p.created_at, p.user_id, u.name AS author, u.avatar AS author_avatar
+      `SELECT p.id, p.body, p.image, p.video, p.created_at, p.user_id, u.name AS author, u.avatar AS author_avatar,
+         (SELECT COUNT(*) FROM post_views v WHERE v.post_id = p.id) AS views,
+         (SELECT COUNT(*) FROM post_saves s WHERE s.post_id = p.id AND s.user_id = ?) AS saved
        FROM posts p JOIN users u ON u.id = p.user_id
        WHERE ${where.join(' AND ')}
        ORDER BY p.id DESC LIMIT ?`,
-      args,
+      [viewer, ...args],
     );
     const hasMore = posts.length > PAGE_SIZE;
     const page = posts.slice(0, PAGE_SIZE);
@@ -458,6 +498,8 @@ app.get(
       hasMore,
       posts: page.map((p) => ({
         ...p,
+        views: Number(p.views),
+        saved: Number(p.saved) > 0,
         reactions: reactions[p.id] ?? {},
         comments: comments[p.id] ?? [],
         followed: followed.has(Number(p.user_id)),
@@ -512,23 +554,48 @@ app.post(
   '/api/posts/:id/reactions',
   wrap(async (req, res) => {
     const postId = Number(req.params.id);
-    const emoji = String(req.body?.emoji ?? '');
-    const allowed = ['🔥', '😂', '❤️', '💯'];
-    if (!allowed.includes(emoji)) bad('Unknown reaction.');
-    const post = await one('SELECT id FROM posts WHERE id = ?', [postId]);
-    if (!post) return res.status(404).json({ error: 'That post is gone.' });
-    const deleted = await exec('DELETE FROM reactions WHERE post_id = ? AND user_id = ? AND emoji = ?', [
-      postId,
-      me(req),
-      emoji,
-    ]);
-    if (!deleted.rowCount) {
-      await exec(
-        'INSERT INTO reactions (post_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING',
-        [postId, me(req), emoji, Date.now()],
-      );
+    // Emoji reactions were removed; only the heart like (see /like) is accepted.
+    bad('Reactions are now just likes.');
+  }),
+);
+
+// Counts a view once per viewer. Called when a post or reel is shown.
+app.post(
+  '/api/posts/:id/view',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) bad('Bad request.');
+    await exec('INSERT INTO post_views (post_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [id, me(req), Date.now()]);
+    res.json({ ok: true });
+  }),
+);
+
+app.put(
+  '/api/posts/:id/save',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) bad('Bad request.');
+    if (req.body?.saved) {
+      await exec('INSERT INTO post_saves (post_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [id, me(req), Date.now()]);
+    } else {
+      await exec('DELETE FROM post_saves WHERE post_id = ? AND user_id = ?', [id, me(req)]);
     }
     res.json({ ok: true });
+  }),
+);
+
+// Saved posts and statuses for the signed-in user (private to them).
+app.get(
+  '/api/saved',
+  wrap(async (req, res) => {
+    const posts = await q(
+      `SELECT p.id, p.body, p.image, p.video, p.created_at, p.user_id, u.name AS author, u.avatar AS author_avatar,
+         (SELECT COUNT(*) FROM post_views v WHERE v.post_id = p.id) AS views
+       FROM post_saves s JOIN posts p ON p.id = s.post_id JOIN users u ON u.id = p.user_id
+       WHERE s.user_id = ? ORDER BY s.created_at DESC LIMIT 200`,
+      [me(req)],
+    );
+    res.json({ posts: posts.map((p) => ({ ...p, views: Number(p.views), reactions: {}, comments: [], saved: true })) });
   }),
 );
 
@@ -811,6 +878,8 @@ app.get(
          )) AS title,
          (SELECT u.avatar FROM conversation_members m JOIN users u ON u.id = m.user_id
            WHERE m.conversation_id = c.id AND m.user_id <> ? AND c.kind = 'dm' LIMIT 1) AS avatar,
+         (SELECT u.last_seen FROM conversation_members m JOIN users u ON u.id = m.user_id
+           WHERE m.conversation_id = c.id AND m.user_id <> ? AND c.kind = 'dm' LIMIT 1) AS peer_seen,
          cm.muted, cm.last_read_id,
          (SELECT COUNT(*) FROM messages x
            WHERE x.conversation_id = c.id AND x.id > cm.last_read_id AND x.sender_id <> ?) AS unread,
@@ -819,7 +888,7 @@ app.get(
        FROM conversations c
        JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = ?
        ORDER BY COALESCE((SELECT MAX(created_at) FROM messages z WHERE z.conversation_id = c.id), c.created_at) DESC, c.id DESC`,
-      [viewer, viewer, viewer, viewer],
+      [viewer, viewer, viewer, viewer, viewer],
     );
     res.json(
       rows.map((r) => ({
@@ -827,6 +896,7 @@ app.get(
         kind: r.kind,
         title: r.title ?? 'Untitled',
         avatar: r.avatar ?? null,
+        online: r.kind === 'dm' ? isOnline(r.peer_seen) : false,
         createdBy: r.created_by,
         muted: !!r.muted,
         unread: r.muted ? 0 : Number(r.unread),
@@ -860,7 +930,7 @@ app.get(
       [me(req), id],
     );
     const members = await q(
-      `SELECT u.id, u.name, u.avatar FROM conversation_members m JOIN users u ON u.id = m.user_id
+      `SELECT u.id, u.name, u.avatar, u.last_seen FROM conversation_members m JOIN users u ON u.id = m.user_id
        WHERE m.conversation_id = ? ORDER BY lower(u.name)`,
       [id],
     );
@@ -876,6 +946,7 @@ app.get(
       createdBy: c.created_by,
       muted: !!c.muted,
       avatar: c.kind === 'dm' ? members.find((m) => Number(m.id) !== me(req))?.avatar ?? null : null,
+      online: c.kind === 'dm' ? isOnline(members.find((m) => Number(m.id) !== me(req))?.last_seen) : false,
       canEdit: canManageConversation(c, me(req), req.user.isAdmin),
       members: members.map((m) => m.name),
       memberList: members.map((m) => ({ id: Number(m.id), name: m.name, avatar: m.avatar ?? null })),
@@ -1216,6 +1287,11 @@ async function migrate() {
   await exec('ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT');
   await exec('CREATE TABLE IF NOT EXISTS statuses (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT, image TEXT, created_at BIGINT NOT NULL)');
   await exec('CREATE INDEX IF NOT EXISTS statuses_user_created ON statuses (user_id, created_at)');
+  await exec('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen BIGINT');
+  await exec('CREATE TABLE IF NOT EXISTS post_views (post_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (post_id, user_id))');
+  await exec('CREATE TABLE IF NOT EXISTS status_views (status_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (status_id, user_id))');
+  await exec('CREATE TABLE IF NOT EXISTS post_saves (post_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (post_id, user_id))');
+  await exec('CREATE TABLE IF NOT EXISTS status_saves (status_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (status_id, user_id))');
 }
 migrate()
   .catch((e) => console.error('Migration failed', e))

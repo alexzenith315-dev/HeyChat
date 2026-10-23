@@ -1,8 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { X, ImageSquare } from '@phosphor-icons/react';
-import { api, createPost, fetchFeed, readUploadDataUrl, createStatus, fetchStatuses } from '../lib/db';
+import { X, ImageSquare, BookmarkSimple, Eye } from '@phosphor-icons/react';
+import {
+  api,
+  createPost,
+  fetchFeed,
+  readUploadDataUrl,
+  createStatus,
+  fetchStatuses,
+  recordView,
+  recordStatusView,
+  toggleSave,
+  toggleStatusSave,
+} from '../lib/db';
 import { timeAgo } from '../lib/time';
 import Post from './Post';
 import Avatar from './Avatar';
@@ -110,6 +121,23 @@ function StoriesRow({ viewer }) {
   const [composing, setComposing] = useState(false);
   const [viewing, setViewing] = useState(null);
 
+  // Opening a status counts one view for the viewer and marks the list as seen.
+  function openStatus(s) {
+    setViewing(s);
+    if (s) recordStatusView(s.id);
+  }
+
+  async function toggleStatusBookmark(s) {
+    const next = !s.saved;
+    setViewing((v) => (v && v.id === s.id ? { ...v, saved: next } : v));
+    setStatuses((list) => list.map((x) => (x.id === s.id ? { ...x, saved: next } : x)));
+    try {
+      await toggleStatusSave(s.id, next);
+    } catch {
+      setViewing((v) => (v && v.id === s.id ? { ...v, saved: !next } : v));
+    }
+  }
+
   function loadStatuses() {
     fetchStatuses()
       .then(setStatuses)
@@ -134,7 +162,7 @@ function StoriesRow({ viewer }) {
           <li>
             <button
               type="button"
-              onClick={() => (mine ? setViewing(mine) : setComposing((v) => !v))}
+              onClick={() => (mine ? openStatus(mine) : setComposing((v) => !v))}
               aria-expanded={composing}
               className="focus-ring flex w-16 flex-col items-center gap-1"
             >
@@ -152,7 +180,7 @@ function StoriesRow({ viewer }) {
               <li key={u.id}>
                 <button
                   type="button"
-                  onClick={() => setViewing(latestByUser.get(u.id))}
+                  onClick={() => openStatus(latestByUser.get(u.id))}
                   className="focus-ring flex w-16 flex-col items-center gap-1"
                 >
                   <span className="rounded-full bg-gradient-to-tr from-primary to-accent-sky p-0.5">
@@ -203,7 +231,24 @@ function StoriesRow({ viewer }) {
           </div>
           {viewing.body && <p className="whitespace-pre-wrap text-ink">{viewing.body}</p>}
           {viewing.image && <img src={viewing.image} alt="" className="max-h-80 w-full rounded-xl object-cover" />}
-          <p className="text-xs text-ink-faint">{timeAgo(viewing.createdAt)}</p>
+          <div className="flex items-center justify-between text-xs text-ink-faint">
+            <span>{timeAgo(viewing.createdAt)}</span>
+            <span className="inline-flex items-center gap-1 tabular-nums">
+              <Eye size={14} aria-hidden="true" />
+              {viewing.views ?? 0} {(viewing.views ?? 0) === 1 ? 'view' : 'views'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => toggleStatusBookmark(viewing)}
+            aria-pressed={!!viewing.saved}
+            className={`focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm transition-colors hover:bg-ink/5 ${
+              viewing.saved ? 'text-primary-text' : 'text-ink-secondary'
+            }`}
+          >
+            <BookmarkSimple size={18} weight={viewing.saved ? 'fill' : 'regular'} aria-hidden="true" />
+            {viewing.saved ? 'Saved' : 'Save'}
+          </button>
         </div>
       )}
     </div>
@@ -211,6 +256,55 @@ function StoriesRow({ viewer }) {
 }
 
 export const isVideoPost = (p) => !!p.video && /^data:video\/(mp4|webm);/.test(p.video);
+
+export function ReelTile({ p }) {
+  const [views, setViews] = useState(Number(p.views ?? 0));
+  const [saved, setSaved] = useState(!!p.saved);
+  const counted = useRef(false);
+
+  function onPlay() {
+    if (counted.current) return;
+    counted.current = true;
+    setViews((v) => v + 1);
+    recordView(p.id);
+  }
+
+  async function toggle() {
+    const next = !saved;
+    setSaved(next);
+    try {
+      await toggleSave(p.id, next);
+    } catch {
+      setSaved(!next);
+    }
+  }
+
+  return (
+    <div className="relative">
+      <video
+        src={p.video}
+        muted
+        playsInline
+        preload="metadata"
+        onPlay={onPlay}
+        aria-label={p.body ? p.body.slice(0, 80) : `Video by ${p.author}`}
+        className="aspect-[3/4] w-full bg-black object-cover"
+      />
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/50 px-2 py-1 text-xs text-white">
+        <span className="tabular-nums">{views} {views === 1 ? 'view' : 'views'}</span>
+        <button
+          type="button"
+          onClick={toggle}
+          aria-pressed={saved}
+          aria-label={saved ? 'Remove from saved' : 'Save reel'}
+          className="focus-ring rounded-full p-0.5"
+        >
+          <BookmarkSimple size={16} weight={saved ? 'fill' : 'regular'} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function ReelsGrid({ posts }) {
   if (posts === null) return <p className="mt-6 text-sm text-ink-faint">Loading…</p>;
@@ -221,15 +315,7 @@ function ReelsGrid({ posts }) {
   return (
     <div className="mt-6 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
       {reels.map((p) => (
-        <video
-          key={p.id}
-          src={p.video}
-          muted
-          playsInline
-          preload="metadata"
-          aria-label={p.body ? p.body.slice(0, 80) : `Video by ${p.author}`}
-          className="aspect-[3/4] w-full bg-black object-cover"
-        />
+        <ReelTile key={p.id} p={p} />
       ))}
     </div>
   );

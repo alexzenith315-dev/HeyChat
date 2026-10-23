@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Heart, Gift, ChatCircle, ShareNetwork } from '@phosphor-icons/react';
-import { EMOJIS, toggleLike, toggleReaction, addComment, deletePost, deleteComment, followUser, unfollowUser } from '../lib/db';
+import { Heart, Gift, ChatCircle, ShareNetwork, BookmarkSimple, Eye } from '@phosphor-icons/react';
+import { toggleLike, toggleSave, recordView, addComment, deletePost, deleteComment, followUser, unfollowUser } from '../lib/db';
 import { timeAgo } from '../lib/time';
 import Avatar from './Avatar';
 import GiftSheet from './GiftSheet';
@@ -18,6 +18,41 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState('');
   const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(!!post.saved);
+  const [views, setViews] = useState(Number(post.views ?? 0));
+  const cardRef = useRef(null);
+  const viewed = useRef(false);
+
+  // Count a view once, when the post is at least half on screen.
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el || viewed.current || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && !viewed.current) {
+          viewed.current = true;
+          setViews((v) => v + 1);
+          recordView(post.id);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.5 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [post.id]);
+
+  async function bookmark() {
+    setErr('');
+    const next = !saved;
+    setSaved(next);
+    try {
+      await toggleSave(post.id, next);
+    } catch (e) {
+      setSaved(!next);
+      setErr(e.message);
+    }
+  }
 
   async function share() {
     const url = `${window.location.origin}/?post=${post.id}`;
@@ -32,16 +67,6 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
   }
   const reduce = useReducedMotion();
   const canDelete = viewer.id === post.user_id || viewer.isAdmin;
-
-  async function react(emoji) {
-    setErr('');
-    try {
-      await toggleReaction(post.id, viewer.id, emoji);
-      onChanged();
-    } catch (e) {
-      setErr(e.message);
-    }
-  }
 
   async function like() {
     setErr('');
@@ -97,6 +122,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
 
   return (
     <motion.article
+      ref={cardRef}
       layout={!reduce}
       initial={reduce ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
@@ -186,6 +212,20 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
           <ShareNetwork size={20} aria-hidden="true" />
           <span className="text-xs">{copied ? 'Copied' : ''}</span>
         </button>
+        <button
+          onClick={bookmark}
+          aria-pressed={saved}
+          aria-label={saved ? 'Remove from saved' : 'Save post'}
+          className={`focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm transition-colors hover:bg-ink/5 ${
+            saved ? 'text-primary-text' : 'text-ink-secondary'
+          }`}
+        >
+          <BookmarkSimple size={20} weight={saved ? 'fill' : 'regular'} aria-hidden="true" />
+        </button>
+        <span className="inline-flex items-center gap-1 px-1 text-xs text-ink-faint" aria-label={`${views} views`}>
+          <Eye size={16} aria-hidden="true" />
+          <span className="tabular-nums">{views} {views === 1 ? 'view' : 'views'}</span>
+        </span>
         {post.user_id !== viewer.id && (
           <motion.button
             whileTap={reduce ? undefined : { scale: 0.86 }}
@@ -197,29 +237,6 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
             <span className="text-xs">Gift</span>
           </motion.button>
         )}
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {EMOJIS.map((emoji) => {
-          const r = post.reactions[emoji];
-          return (
-            <motion.button
-              key={emoji}
-              whileTap={reduce ? undefined : { scale: 0.86 }}
-              onClick={() => react(emoji)}
-              aria-pressed={!!r?.mine}
-              aria-label={`React ${emoji}, ${r?.count ?? 0} so far`}
-              className={`focus-ring inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors ${
-                r?.mine ? 'border-primary bg-primary/10 text-primary-text' : 'border-hairline bg-canvas text-ink-secondary'
-              }`}
-            >
-              <span>{emoji}</span>
-              <motion.span key={r?.count ?? 0} initial={reduce ? false : { y: -6, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={spring} className="tabular-nums">
-                {r?.count ?? 0}
-              </motion.span>
-            </motion.button>
-          );
-        })}
       </div>
 
       <AnimatePresence initial={false}>

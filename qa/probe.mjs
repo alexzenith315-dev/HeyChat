@@ -1,0 +1,12 @@
+import { chromium } from '/usr/local/lib/node_modules/playwright/index.mjs';
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 390, height: 780 } });
+const logs = [];
+p.on('pageerror', (e) => logs.push('pageerror ' + e.message));
+p.on('console', (m) => logs.push(m.type() + ' ' + m.text()));
+p.on('response', (r) => { if (r.url().includes('/api/')) logs.push('resp ' + r.status() + ' ' + r.url()); });
+await p.goto('http://localhost:4174/', { waitUntil: 'load' });
+await p.waitForTimeout(3000);
+console.log((await p.evaluate(() => document.body.innerText)).slice(0, 400));
+console.log(logs.slice(0, 30).join('\n'));
+await b.close();

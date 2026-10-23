@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Link, useParams } from 'react-router-dom';
-import { fetchProfile, fetchFeed, toggleFollowUser } from '../lib/db';
+import { fetchProfile, fetchFeed, toggleFollowUser, fetchSaved } from '../lib/db';
 import Post from './Post';
 import Avatar from './Avatar';
-import { isVideoPost } from './Feed';
+import { isVideoPost, ReelTile } from './Feed';
 
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
 const PROFILE_TABS = [
@@ -12,6 +12,8 @@ const PROFILE_TABS = [
   { id: 'media', label: 'Media' },
   { id: 'reels', label: 'Reels' },
 ];
+// Saved is private: only shown on your own profile.
+const SELF_TABS = [...PROFILE_TABS, { id: 'saved', label: 'Saved' }];
 
 // A stat is a real link to the follower / following list. Posts is informational.
 function Stat({ to, value, label }) {
@@ -38,10 +40,22 @@ export default function Profile({ viewer }) {
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState(null);
   const [tab, setTab] = useState('posts');
+  const [saved, setSaved] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const reduce = useReducedMotion();
   const isSelf = viewer.id === id;
+
+  useEffect(() => {
+    if (tab !== 'saved' || !isSelf) return;
+    let cancelled = false;
+    fetchSaved()
+      .then((r) => !cancelled && setSaved(r.posts ?? []))
+      .catch(() => !cancelled && setSaved([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, isSelf]);
 
   const load = useCallback(async () => {
     try {
@@ -162,7 +176,7 @@ export default function Profile({ viewer }) {
       {error && <p role="alert" className="mx-4 mt-4 text-sm text-danger">{error}</p>}
 
       <div role="tablist" aria-label="Profile sections" className="mt-4 flex border-b border-hairline px-2">
-        {PROFILE_TABS.map((t) => (
+        {(viewer.id === id ? SELF_TABS : PROFILE_TABS).map((t) => (
           <button
             key={t.id}
             role="tab"
@@ -211,6 +225,20 @@ export default function Profile({ viewer }) {
           </>
         )}
 
+        {tab === 'saved' && (
+          <>
+            {saved === null && <p className="mt-4 text-sm text-ink-faint">Loading…</p>}
+            {saved && saved.length === 0 && <EmptyNote>Nothing saved yet. Tap the bookmark on a post or reel to keep it here.</EmptyNote>}
+            {saved && saved.length > 0 && (
+              <motion.div layout className="mt-4 space-y-3">
+                {saved.map((p) => (
+                  <Post key={p.id} post={p} viewer={viewer} onChanged={() => setSaved((list) => list?.filter((x) => x.id !== p.id) ?? null)} />
+                ))}
+              </motion.div>
+            )}
+          </>
+        )}
+
         {posts && tab === 'reels' && (
           <>
             {reels.length === 0 ? (
@@ -218,7 +246,7 @@ export default function Profile({ viewer }) {
             ) : (
               <div className="mt-4 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
                 {reels.map((p) => (
-                  <video key={p.id} src={p.video} muted playsInline preload="metadata" aria-label={p.body ? p.body.slice(0, 80) : `Reel by ${profile.name}`} className="aspect-[3/4] w-full bg-black object-cover" />
+                  <ReelTile key={p.id} p={p} />
                 ))}
               </div>
             )}

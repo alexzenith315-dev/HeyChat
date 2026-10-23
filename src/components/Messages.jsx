@@ -129,7 +129,7 @@ export default function Messages({ viewer }) {
                 to={`/messages/${c.id}`}
                 className="focus-ring card flex items-center gap-3 p-4 transition active:scale-[0.99]"
               >
-                <Avatar name={c.title} src={c.avatar} text="text-sm" />
+                <Avatar name={c.title} src={c.avatar} text="text-sm" online={!!c.online} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate font-semibold text-ink">{c.title}</span>

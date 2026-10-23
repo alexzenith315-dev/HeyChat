@@ -4,7 +4,6 @@
 const TOKEN_KEY = 'heychat-token';
 const API = import.meta.env.VITE_API_URL ?? '';
 
-export const EMOJIS = ['🔥', '😂', '❤️', '💯'];
 export const PAGE_SIZE = 20;
 // One upload cap for images, videos and attachments: 30 MB on the raw file.
 export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
@@ -152,8 +151,25 @@ export async function deletePost(postId) {
   await api('DELETE', `/api/posts/${postId}`);
 }
 
-export async function toggleReaction(postId, userId, emoji) {
-  await api('POST', `/api/posts/${postId}/reactions`, { emoji });
+// Records one view per viewer. Fire-and-forget: a failed view should never break the feed.
+export function recordView(postId) {
+  return api('POST', `/api/posts/${postId}/view`).catch(() => {});
+}
+
+export function toggleSave(postId, saved) {
+  return api('PUT', `/api/posts/${postId}/save`, { saved });
+}
+
+export function recordStatusView(statusId) {
+  return api('POST', `/api/statuses/${statusId}/view`).catch(() => {});
+}
+
+export function toggleStatusSave(statusId, saved) {
+  return api('PUT', `/api/statuses/${statusId}/save`, { saved });
+}
+
+export function fetchSaved() {
+  return api('GET', '/api/saved');
 }
 
 export async function toggleLike(postId) {
