@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Link, useParams } from 'react-router-dom';
-import { GridFour, Image as ImageIcon, FilmStrip, BookmarkSimple } from '@phosphor-icons/react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { GridFour, Image as ImageIcon, FilmStrip, BookmarkSimple, ArrowLeft, MagnifyingGlass, LinkSimple, CalendarBlank, ShareFat } from '@phosphor-icons/react';
 import { fetchProfile, fetchFeed, toggleFollowUser, fetchSaved } from '../lib/db';
 import Post from './Post';
 import Avatar from './Avatar';
@@ -25,10 +25,10 @@ function Stat({ to, value, label }) {
       <span className="text-ink-muted">{label}</span>
     </>
   );
-  const base = 'inline-flex items-baseline gap-1 rounded-md text-[15px]';
+  const base = 'inline-flex items-baseline gap-1 rounded-md text-[15px] hover:underline';
   if (!to) return <span className={base}>{inner}</span>;
   return (
-    <Link to={to} className={`focus-ring ${base} transition-colors hover:text-ink`}>
+    <Link to={to} className={`focus-ring ${base}`}>
       {inner}
     </Link>
   );
@@ -55,6 +55,7 @@ export default function Profile({ viewer }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const reduce = useReducedMotion();
+  const navigate = useNavigate();
   const isSelf = viewer.id === id;
   const tabs = isSelf ? SELF_TABS : PROFILE_TABS;
 
@@ -133,27 +134,55 @@ export default function Profile({ viewer }) {
   }
 
   const handle = `@${String(profile.name || '').replace(/\s+/g, '').toLowerCase()}`;
+  const joinedLabel = profile.joined ? new Date(profile.joined).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : null;
 
   return (
     <div className="mx-auto w-full max-w-xl pb-24 sm:pt-6">
       <section className="bg-canvas sm:overflow-hidden sm:rounded-2xl sm:border sm:border-hairline">
-        {/* Cover: flat accent tint (design contract: no gradients) */}
-        <div aria-hidden="true" className="relative h-36 overflow-hidden bg-accent-sky/35 sm:h-44">
+        {/* Cover: full width, back arrow and icon buttons overlaid */}
+        <div className="relative h-40 overflow-hidden bg-accent-sky/35 sm:h-48">
           {profile.cover && <img src={profile.cover} alt="" className="absolute inset-0 size-full object-cover" />}
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            aria-label="Back"
+            className="focus-ring absolute left-3 top-3 grid size-9 place-items-center rounded-full bg-black/55 text-white"
+          >
+            <ArrowLeft size={18} weight="bold" aria-hidden="true" />
+          </button>
+          <div className="absolute right-3 top-3 flex items-center gap-2">
+            <button type="button" aria-label="Search" onClick={() => navigate('/discover')} className="focus-ring grid size-9 place-items-center rounded-full bg-black/55 text-white">
+              <MagnifyingGlass size={18} weight="bold" aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
-        <div className="px-4 pb-5 sm:px-6">
-          {/* Avatar overlaps the cover by half its height; the action button sits on the same baseline */}
-          <div className="-mt-14 flex items-end justify-between gap-3">
-            <div className="rounded-full bg-canvas p-1">
-              <Avatar name={profile.name} src={profile.avatar} size="size-28" text="text-4xl" />
+        <div className="px-4 pb-4 sm:px-5">
+          {/* Square rounded avatar overlapping the cover bottom-left; actions sit on the right */}
+          <div className="-mt-12 flex items-end justify-between gap-3">
+            <div className="rounded-[18px] border-4 border-canvas bg-canvas">
+              <Avatar name={profile.name} src={profile.avatar} size="size-24" text="text-4xl" rounded="rounded-[14px]" />
             </div>
             <div className="mb-1 flex items-center gap-2">
+              <button
+                type="button"
+                aria-label="Share profile"
+                onClick={async () => {
+                const url = `${window.location.origin}/u/${id}`;
+                try {
+                  if (navigator.share) await navigator.share({ title: `${profile.name} on HeyChat`, url });
+                  else await navigator.clipboard.writeText(url);
+                } catch {
+                  /* share sheet dismissed */
+                }
+                }}
+                className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-hairline bg-canvas px-4 py-1.5 text-sm font-bold text-ink hover:bg-ink/5"
+              >
+                <ShareFat size={16} weight="bold" aria-hidden="true" />
+                Share
+              </button>
               {isSelf ? (
-                <Link
-                  to="/profile/edit"
-                  className="focus-ring rounded-full border border-hairline bg-canvas px-5 py-2 text-sm font-semibold text-ink transition-colors hover:bg-ink/5"
-                >
+                <Link to="/profile/edit" className="focus-ring rounded-full border border-hairline bg-canvas px-4 py-1.5 text-sm font-bold text-ink hover:bg-ink/5">
                   Edit profile
                 </Link>
               ) : (
@@ -163,10 +192,8 @@ export default function Profile({ viewer }) {
                   onClick={toggleFollow}
                   disabled={busy}
                   aria-pressed={profile.followed}
-                  className={`focus-ring rounded-full border px-6 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
-                    profile.followed
-                      ? 'border-hairline bg-canvas text-ink hover:bg-ink/5'
-                      : 'border-primary bg-primary text-white hover:opacity-90'
+                  className={`focus-ring rounded-full border px-5 py-1.5 text-sm font-bold transition-colors disabled:opacity-50 ${
+                    profile.followed ? 'border-hairline bg-canvas text-ink hover:bg-ink/5' : 'border-ink bg-ink text-canvas hover:opacity-90'
                   }`}
                 >
                   {profile.followed ? 'Following' : 'Follow'}
@@ -176,21 +203,34 @@ export default function Profile({ viewer }) {
           </div>
 
           <div className="mt-3 min-w-0">
-            <h1 className="truncate text-2xl font-bold tracking-tight text-ink">{profile.name}</h1>
+            <h1 className="truncate text-xl font-extrabold tracking-tight text-ink">{profile.name}</h1>
             <p className="truncate text-[15px] text-ink-muted">{handle}</p>
           </div>
 
           {profile.bio ? (
-            <p className="mt-3 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-ink-secondary">{profile.bio}</p>
+            <p className="mt-3 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-ink">{profile.bio}</p>
           ) : isSelf ? (
             <p className="mt-3 text-[15px] text-ink-faint">Add a bio from Edit profile.</p>
           ) : null}
 
-          {/* Inline stat row: "12 Posts · 3 Followers · 5 Following" */}
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
-            <Stat value={posts ? posts.length : '–'} label="Posts" />
-            <Stat to={`/u/${id}/followers`} value={profile.followers} label={profile.followers === 1 ? 'Follower' : 'Followers'} />
+          {/* Meta row: small icons, joined date, chevron to the full profile details */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[15px] text-ink-muted">
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <LinkSimple size={16} aria-hidden="true" />
+              <span className="truncate text-primary-text">{typeof window !== 'undefined' ? window.location.host : ''}/u/{id}</span>
+            </span>
+            {joinedLabel && (
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarBlank size={16} aria-hidden="true" />
+                Joined {joinedLabel}
+              </span>
+            )}
+          </div>
+
+          {/* Inline stats: bold numbers, muted labels, tappable */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
             <Stat to={`/u/${id}/following`} value={profile.following} label="Following" />
+            <Stat to={`/u/${id}/followers`} value={profile.followers} label={profile.followers === 1 ? 'Follower' : 'Followers'} />
           </div>
         </div>
       </section>
@@ -208,12 +248,12 @@ export default function Profile({ viewer }) {
               aria-selected={active}
               aria-label={t.label}
               onClick={() => setTab(t.id)}
-              className={`focus-ring relative flex items-center justify-center py-3 transition-colors ${
-                active ? 'text-ink' : 'text-ink-faint hover:text-ink-secondary'
+              className={`focus-ring relative flex items-center justify-center py-3.5 transition-colors ${
+                active ? 'text-ink' : 'text-ink-faint hover:bg-ink/5'
               }`}
             >
               <Icon size={22} weight={active ? 'fill' : 'regular'} aria-hidden="true" />
-              {active && <span className="absolute inset-x-6 bottom-0 h-0.5 rounded-full bg-ink" aria-hidden="true" />}
+              {active && <span className="absolute inset-x-0 bottom-0 h-[3px] rounded-full bg-primary" aria-hidden="true" />}
             </button>
           );
         })}

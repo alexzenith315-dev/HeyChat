@@ -256,7 +256,7 @@ app.get(
   wrap(async (req, res) => {
     const id = Number(req.params.id);
     const u = await one(
-      `SELECT u.id, u.name, u.bio, u.avatar, u.cover,
+      `SELECT u.id, u.name, u.bio, u.avatar, u.cover, u.created_at,
          (SELECT COUNT(*) FROM follows WHERE followee_id = u.id) AS followers,
          (SELECT COUNT(*) FROM follows WHERE follower_id = u.id) AS following,
          (SELECT COUNT(*) FROM follows WHERE follower_id = ? AND followee_id = u.id) AS followed
@@ -270,6 +270,7 @@ app.get(
       bio: u.bio ?? '',
       avatar: u.avatar ?? null,
       cover: u.cover ?? null,
+      joined: u.created_at ? Number(u.created_at) : null,
       followers: Number(u.followers),
       following: Number(u.following),
       followed: Number(u.followed) > 0,
@@ -522,7 +523,8 @@ app.get(
     const posts = await q(
       `SELECT p.id, p.body, p.image, p.video, p.created_at, p.user_id, u.name AS author, u.avatar AS author_avatar,
          (SELECT COUNT(*) FROM post_views v WHERE v.post_id = p.id) AS views,
-         (SELECT COUNT(*) FROM post_saves s WHERE s.post_id = p.id AND s.user_id = ?) AS saved
+         (SELECT COUNT(*) FROM post_saves s WHERE s.post_id = p.id AND s.user_id = ?) AS saved,
+         (SELECT COUNT(*) FROM post_saves s WHERE s.post_id = p.id) AS saves
        FROM posts p JOIN users u ON u.id = p.user_id
        WHERE ${where.join(' AND ')}
        ORDER BY p.id DESC LIMIT ?`,
@@ -570,6 +572,7 @@ app.get(
         ...p,
         views: Number(p.views),
         saved: Number(p.saved) > 0,
+        saves: Number(p.saves),
         reactions: reactions[p.id] ?? {},
         comments: comments[p.id] ?? [],
         followed: followed.has(Number(p.user_id)),

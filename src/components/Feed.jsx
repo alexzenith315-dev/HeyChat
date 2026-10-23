@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { X, ImageSquare, FilmStrip, BookmarkSimple, Heart, ChatCircle } from '@phosphor-icons/react';
+import { X, ImageSquare, FilmStrip, BookmarkSimple, Heart, ChatCircle, MagnifyingGlass, MusicNotes, Plus, ShareFat } from '@phosphor-icons/react';
 import {
   api,
   createPost,
@@ -411,9 +411,51 @@ export function ReelTile({ p, onOpen }) {
   );
 }
 
-// Fullscreen vertical reels viewer: one video per screen, snap-scroll up and down.
-// Autoplay runs for the visible video only. The rail carries like, comment, save. Follow sits on the author line.
-function ReelsViewer({ reels, startId, viewer, onClose, onChanged }) {
+// Fullscreen vertical reels viewer, TikTok layout: tabs and search overlaid on the video,
+// right action rail, creator + caption + audio pill bottom-left. Swipe up/down between reels.
+const REEL_TABS = [
+  { id: 'following', label: 'Following' },
+  { id: 'foryou', label: 'For you' },
+  { id: 'latest', label: 'Latest' },
+  { id: 'reels', label: 'Reels' },
+];
+const HASHTAG_RE = /(#[\p{L}\p{N}_]+)/gu;
+const isHashtag = (part) => /^#[\p{L}\p{N}_]+$/u.test(part);
+
+function Caption({ body }) {
+  const [open, setOpen] = useState(false);
+  const long = body.length > 90;
+  const parts = body.split(HASHTAG_RE);
+  return (
+    <p className="mt-2 text-[15px] leading-snug text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.7)]">
+      <span className={open || !long ? '' : 'line-clamp-2'}>
+        {parts.map((part, i) => (isHashtag(part) ? <span key={i} className="font-semibold">{part}</span> : <span key={i}>{part}</span>))}
+      </span>
+      {long && (
+        <button type="button" onClick={() => setOpen((v) => !v)} className="focus-ring ml-1 font-semibold text-white/90">
+          {open ? 'less' : '...more'}
+        </button>
+      )}
+    </p>
+  );
+}
+
+function RailButton({ label, onClick, pressed, children, count }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={pressed}
+      aria-label={label}
+      className="focus-ring flex flex-col items-center gap-1 text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]"
+    >
+      {children}
+      {count !== undefined && <span className="text-xs font-semibold tabular-nums">{count}</span>}
+    </button>
+  );
+}
+
+function ReelsViewer({ reels, startId, viewer, onTab, onClose, onChanged }) {
   const [activeId, setActiveId] = useState(startId);
   const [commenting, setCommenting] = useState(null);
   const scroller = useRef(null);
@@ -453,10 +495,10 @@ function ReelsViewer({ reels, startId, viewer, onClose, onChanged }) {
     return () => io.disconnect();
   }, [reels]);
 
-  // Keyboard: arrow up/down moves between reels, Escape closes.
+  // Keyboard: arrow up/down moves between reels, Escape leaves the viewer.
   useEffect(() => {
     function onKey(e) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onClose?.();
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         const idx = reels.findIndex((r) => r.id === activeId);
         const next = reels[e.key === 'ArrowDown' ? idx + 1 : idx - 1];
@@ -467,8 +509,6 @@ function ReelsViewer({ reels, startId, viewer, onClose, onChanged }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [activeId, reels, onClose]);
 
-  const current = reels.find((r) => r.id === activeId) ?? reels[0];
-
   async function run(fn) {
     try {
       await fn();
@@ -478,71 +518,134 @@ function ReelsViewer({ reels, startId, viewer, onClose, onChanged }) {
     }
   }
 
+  async function share(p) {
+    const url = `${window.location.origin}/u/${p.user_id}`;
+    try {
+      if (navigator.share) await navigator.share({ title: `${p.author} on HeyChat`, url });
+      else await navigator.clipboard.writeText(url);
+    } catch {
+      /* user dismissed the share sheet */
+    }
+  }
+
+  function selectTab(id) {
+    if (id === 'reels') return;
+    if (onTab) onTab(id);
+    else onClose?.();
+  }
+
+  const commentsFor = reels.find((r) => r.id === commenting);
+
   return (
     <div role="dialog" aria-modal="true" aria-label="Reels" className="fixed inset-0 z-50 bg-black">
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close reels"
-        className="focus-ring absolute left-3 top-3 z-20 grid size-10 place-items-center rounded-full bg-black/50 text-white"
-      >
-        <X size={20} aria-hidden="true" />
-      </button>
+      {/* Overlaid top bar: tabs centred with underline on the active one, search top-right */}
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-center px-14 pt-[max(env(safe-area-inset-top),0.75rem)]">
+        <div role="tablist" aria-label="Feed" className="pointer-events-auto flex gap-4 text-[15px] font-semibold">
+          {REEL_TABS.map((t) => {
+            const active = t.id === 'reels';
+            return (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={active}
+                onClick={() => selectTab(t.id)}
+                className={`focus-ring relative whitespace-nowrap py-1 [text-shadow:0_1px_3px_rgba(0,0,0,0.6)] ${active ? 'text-white' : 'text-white/70'}`}
+              >
+                {t.label}
+                {active && <span className="absolute inset-x-0 -bottom-1 h-0.5 rounded-full bg-white" aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </div>
+        <Link to="/discover" aria-label="Search" className="focus-ring pointer-events-auto absolute right-3 top-[max(env(safe-area-inset-top),0.75rem)] grid size-10 place-items-center rounded-full text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]">
+          <MagnifyingGlass size={24} aria-hidden="true" />
+        </Link>
+      </header>
 
       <div ref={scroller} className="h-full snap-y snap-mandatory overflow-y-scroll overscroll-contain" aria-label="Reels feed">
-        {reels.map((p) => (
-          <section key={p.id} data-reel-id={p.id} className="relative h-[100dvh] w-full snap-start snap-always">
-            <video
-              ref={(el) => {
-                if (el) videos.current.set(p.id, el);
-                else videos.current.delete(p.id);
-              }}
-              src={p.video}
-              loop
-              muted={false}
-              playsInline
-              preload="metadata"
-              className="absolute inset-0 size-full bg-black object-cover"
-              aria-label={p.body ? p.body.slice(0, 80) : `Reel by ${p.author}`}
-            />
+        {reels.map((p) => {
+          const active = p.id === activeId;
+          const liked = !!p.reactions?.like?.mine;
+          const followable = p.user_id !== viewer.id;
+          return (
+            <section key={p.id} data-reel-id={p.id} className="relative h-[100dvh] w-full snap-start snap-always bg-black">
+              <video
+                ref={(el) => {
+                  if (el) videos.current.set(p.id, el);
+                  else videos.current.delete(p.id);
+                }}
+                src={p.video}
+                loop
+                muted={false}
+                playsInline
+                preload="metadata"
+                className="absolute inset-0 size-full bg-black object-cover"
+                aria-label={p.body ? p.body.slice(0, 80) : `Reel by ${p.author}`}
+              />
 
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-black/40" aria-hidden="true" />
-
-            <div className="absolute bottom-20 left-4 right-20 z-10 text-white">
-              <div className="flex items-center gap-2">
-                <Link to={`/u/${p.user_id}`} className="focus-ring flex min-w-0 items-center gap-2 rounded-full">
-                  <Avatar name={p.author} src={p.author_avatar} size="size-9" text="text-sm" />
-                  <span className="truncate font-semibold">{p.author}</span>
+              {/* Bottom-left: creator, caption, audio pill */}
+              <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] left-3 right-20 z-10">
+                <Link to={`/u/${p.user_id}`} className="focus-ring inline-block rounded-md [text-shadow:0_1px_3px_rgba(0,0,0,0.7)]">
+                  <span className="text-[17px] font-bold text-white">@{String(p.author || '').replace(/\s+/g, '').toLowerCase()}</span>
                 </Link>
-                {p.user_id !== viewer.id && (
-                  <button
-                    type="button"
-                    onClick={() => run(() => (p.followed ? unfollowUser(viewer.id, p.user_id) : followUser(viewer.id, p.user_id, p.id)))}
-                    aria-pressed={!!p.followed}
-                    className="focus-ring rounded-full border border-white/80 px-3 py-1 text-xs font-medium"
-                  >
-                    {p.followed ? 'Following' : 'Follow'}
-                  </button>
-                )}
+                {p.body && <Caption body={p.body} />}
+                <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 text-[13px] text-white">
+                  <MusicNotes size={14} weight="bold" aria-hidden="true" />
+                  <span className="truncate">Original sound · {p.author}</span>
+                </div>
               </div>
-              {p.body && <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm">{p.body}</p>}
-            </div>
 
-            <div className="absolute bottom-20 right-3 z-10 flex flex-col items-center gap-5 text-white">
-              <button type="button" onClick={() => run(() => toggleLike(p.id, viewer.id, p.user_id))} aria-pressed={!!p.reactions?.like?.mine} aria-label={`Like, ${p.reactions?.like?.count ?? 0} so far`} className="focus-ring flex flex-col items-center gap-1">
-                <Heart size={30} weight={p.reactions?.like?.mine ? 'fill' : 'regular'} aria-hidden="true" />
-                <span className="text-xs tabular-nums">{p.reactions?.like?.count ?? 0}</span>
-              </button>
-              <button type="button" onClick={() => setCommenting(p.id)} aria-label={`Comments, ${p.comments?.length ?? 0} so far`} className="focus-ring flex flex-col items-center gap-1">
-                <ChatCircle size={30} aria-hidden="true" />
-                <span className="text-xs tabular-nums">{p.comments?.length ?? 0}</span>
-              </button>
-              <button type="button" onClick={() => run(() => toggleSave(p.id, !p.saved))} aria-pressed={!!p.saved} aria-label={p.saved ? 'Remove from saved' : 'Save reel'} className="focus-ring flex flex-col items-center gap-1">
-                <BookmarkSimple size={30} weight={p.saved ? 'fill' : 'regular'} aria-hidden="true" />
-              </button>
-            </div>
-          </section>
-        ))}
+              {/* Right action rail */}
+              <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] right-2 z-10 flex flex-col items-center gap-5">
+                <div className="relative mb-1">
+                  <Link to={`/u/${p.user_id}`} aria-label={`${p.author}'s profile`} className="focus-ring block rounded-full border-2 border-white">
+                    <Avatar name={p.author} src={p.author_avatar} size="size-12" text="text-base" />
+                  </Link>
+                  {followable && !p.followed && (
+                    <button
+                      type="button"
+                      onClick={() => run(() => followUser(viewer.id, p.user_id, p.id))}
+                      aria-label={`Follow ${p.author}`}
+                      className="focus-ring absolute -bottom-2 left-1/2 grid size-5 -translate-x-1/2 place-items-center rounded-full bg-[#ff64c8] text-white"
+                    >
+                      <Plus size={12} weight="bold" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+                <RailButton
+                  label={`Like, ${p.reactions?.like?.count ?? 0} so far`}
+                  pressed={liked}
+                  count={p.reactions?.like?.count ?? 0}
+                  onClick={() => run(() => toggleLike(p.id, viewer.id, p.user_id))}
+                >
+                  <Heart size={34} weight={liked ? 'fill' : 'regular'} className={liked ? 'text-[#ff3b5c]' : ''} aria-hidden="true" />
+                </RailButton>
+                <RailButton label={`Comments, ${p.comments?.length ?? 0} so far`} count={p.comments?.length ?? 0} onClick={() => setCommenting(p.id)}>
+                  <ChatCircle size={34} aria-hidden="true" />
+                </RailButton>
+                <RailButton
+                  label={p.saved ? 'Remove from saved' : 'Save reel'}
+                  pressed={!!p.saved}
+                  count={p.saves ?? 0}
+                  onClick={() => run(() => toggleSave(p.id, !p.saved))}
+                >
+                  <BookmarkSimple size={34} weight={p.saved ? 'fill' : 'regular'} aria-hidden="true" />
+                </RailButton>
+                <RailButton label="Share" onClick={() => share(p)}>
+                  <ShareFat size={34} aria-hidden="true" />
+                </RailButton>
+                {/* Spinning sound disc: spins while this reel is on screen */}
+                <div
+                  aria-hidden="true"
+                  className="mt-1 grid size-11 animate-spin place-items-center rounded-full border-[10px] border-zinc-900 bg-zinc-800"
+                  style={{ animationDuration: '4s', animationPlayState: active ? 'running' : 'paused' }}
+                >
+                  <span className="size-2 rounded-full bg-white/80" />
+                </div>
+              </div>
+            </section>
+          );
+        })}
       </div>
 
       {commenting && (
@@ -552,7 +655,7 @@ function ReelsViewer({ reels, startId, viewer, onClose, onChanged }) {
             <button type="button" onClick={() => setCommenting(null)} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-ink/5">Close</button>
           </div>
           <ul className="space-y-2">
-            {(reels.find((r) => r.id === commenting)?.comments ?? []).map((c) => (
+            {(commentsFor?.comments ?? []).map((c) => (
               <li key={c.id} className="text-sm"><span className="font-semibold">{c.author}</span> {c.body}</li>
             ))}
           </ul>
@@ -585,13 +688,13 @@ function CommentBox({ postId, viewer, onPosted }) {
 }
 
 // Reels tab: the fullscreen vertical viewer, not a grid. Closing it returns to For you.
-function ReelsTab({ posts, viewer, onChanged, onExit }) {
+function ReelsTab({ posts, viewer, onChanged, onTab }) {
   if (posts === null) return <p className="mt-6 text-sm text-ink-faint">Loading…</p>;
   const reels = (posts ?? []).filter(isVideoPost);
   if (reels.length === 0) {
     return <p className="mt-10 text-center text-ink-muted">No reels yet. Post a video and it shows up here.</p>;
   }
-  return <ReelsViewer reels={reels} startId={reels[0].id} viewer={viewer} onClose={onExit} onChanged={onChanged} />;
+  return <ReelsViewer reels={reels} startId={reels[0].id} viewer={viewer} onTab={onTab} onChanged={onChanged} />;
 }
 
 function ReelsGrid({ posts, viewer, onChanged }) {
@@ -854,7 +957,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
       )}
 
       {tab === 'reels' ? (
-        <ReelsTab posts={visible} viewer={viewer} onChanged={load} onExit={() => setTab('foryou')} />
+        <ReelsTab posts={visible} viewer={viewer} onChanged={load} onTab={setTab} />
       ) : (
         <motion.div layout className="mt-6 space-y-3">
           <AnimatePresence initial={false}>

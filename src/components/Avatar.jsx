@@ -10,11 +10,11 @@ function OnlineDot({ online }) {
   );
 }
 
-export default function Avatar({ name, src, size = 'size-9', text = 'text-sm', online = false }) {
+export default function Avatar({ name, src, size = 'size-9', text = 'text-sm', online = false, rounded = 'rounded-full' }) {
   const wrap = online ? 'relative inline-block shrink-0 rounded-full' : '';
   const dot = <OnlineDot online={online} />;
   if (src) {
-    if (!online) return <img src={src} alt="" className={`${size} shrink-0 rounded-full object-cover`} />;
+    if (!online) return <img src={src} alt="" className={`${size} shrink-0 ${rounded} object-cover`} />;
     return (
       <span className={wrap}>
         <img src={src} alt="" className={`${size} block rounded-full object-cover`} />
@@ -23,7 +23,7 @@ export default function Avatar({ name, src, size = 'size-9', text = 'text-sm', o
     );
   }
   const circle = (
-    <div className={`grid ${size} shrink-0 place-items-center rounded-full bg-accent-sky ${text} font-bold text-white`} aria-hidden="true">
+    <div className={`grid ${size} shrink-0 place-items-center ${rounded} bg-accent-sky ${text} font-bold text-white`} aria-hidden="true">
       {(name || '?').slice(0, 1).toUpperCase()}
     </div>
   );
