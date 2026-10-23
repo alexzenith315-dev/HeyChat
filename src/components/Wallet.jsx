@@ -47,14 +47,14 @@ export default function Wallet({ viewer }) {
         </div>
       </section>
 
-      {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
 
       <h2 className="mt-8 text-sm font-semibold text-ink-muted">History</h2>
 
       {items === null && !error && (
         <div className="mt-3 space-y-3" aria-label="Loading transactions">
           {[0, 1].map((i) => (
-            <div key={i} className="card h-16 animate-pulse bg-black/[0.03]" />
+            <div key={i} className="card h-16 animate-pulse bg-ink/[0.03]" />
           ))}
         </div>
       )}
@@ -83,7 +83,7 @@ export default function Wallet({ viewer }) {
                     {timeAgo(t.created_at)}
                   </time>
                 </div>
-                <span className={`font-semibold tabular-nums ${amount < 0 ? 'text-ink-secondary' : 'text-primary'}`}>
+                <span className={`font-semibold tabular-nums ${amount < 0 ? 'text-ink-secondary' : 'text-primary-text'}`}>
                   {amount > 0 ? '+' : ''}
                   {amount}
                 </span>

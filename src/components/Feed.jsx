@@ -57,7 +57,7 @@ function StatusComposer({ onClose, onPosted }) {
     <form onSubmit={submit} className="card mt-3 space-y-3 p-4" aria-label="Post a status">
       <div className="flex items-center justify-between">
         <p className="font-semibold text-ink">New status</p>
-        <button type="button" onClick={onClose} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-black/5">
+        <button type="button" onClick={onClose} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-ink/5">
           Cancel
         </button>
       </div>
@@ -67,7 +67,7 @@ function StatusComposer({ onClose, onPosted }) {
         maxLength={280}
         rows={2}
         placeholder="What's happening? (disappears in 24h)"
-        className="focus-ring w-full resize-none rounded-xl border border-hairline bg-white p-3 text-ink"
+        className="focus-ring w-full resize-none rounded-xl border border-hairline bg-canvas p-3 text-ink"
       />
       {image && (
         <div className="relative">
@@ -76,18 +76,18 @@ function StatusComposer({ onClose, onPosted }) {
             type="button"
             onClick={() => setImage(null)}
             aria-label="Remove picture"
-            className="focus-ring absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-ink/70 text-white"
+            className="focus-ring absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-black/70 text-white"
           >
             <X size={16} aria-hidden="true" />
           </button>
         </div>
       )}
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       <div className="flex items-center justify-between">
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="focus-ring flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-black/5"
+          className="focus-ring flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-ink/5"
         >
           <ImageSquare size={18} aria-hidden="true" /> Picture
         </button>
@@ -95,7 +95,7 @@ function StatusComposer({ onClose, onPosted }) {
         <button
           type="submit"
           disabled={busy || (!body.trim() && !image)}
-          className="focus-ring rounded-full bg-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="focus-ring rounded-full bg-ink px-4 py-2 text-sm font-medium text-canvas disabled:opacity-50"
         >
           {busy ? 'Posting...' : 'Post status'}
         </button>
@@ -168,7 +168,7 @@ function StoriesRow({ viewer }) {
             latestByUser.has(u.id) ? null : (
               <li key={u.id}>
                 <Link to={`/u/${u.id}`} className="focus-ring flex w-16 flex-col items-center gap-1">
-                  <span className="rounded-full bg-black/5 p-0.5">
+                  <span className="rounded-full bg-ink/5 p-0.5">
                     <Avatar name={u.name} src={u.avatar} size="size-12" text="text-base" />
                   </span>
                   <span className="w-full truncate text-center text-xs text-ink-muted">{u.name}</span>
@@ -197,7 +197,7 @@ function StoriesRow({ viewer }) {
         <div role="dialog" aria-label={`${viewing.name}'s status`} className="card mt-3 space-y-2 p-4">
           <div className="flex items-center justify-between">
             <p className="font-semibold text-ink">{viewing.name}</p>
-            <button type="button" onClick={() => setViewing(null)} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-black/5">
+            <button type="button" onClick={() => setViewing(null)} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-ink/5">
               Close
             </button>
           </div>
@@ -379,7 +379,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
                   type="button"
                   onClick={() => setImage(null)}
                   aria-label="Remove picture"
-                  className="focus-ring absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-ink/70 text-white"
+                  className="focus-ring absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-black/70 text-white"
                 >
                   <X size={16} aria-hidden="true" />
                 </button>
@@ -399,7 +399,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
                   type="button"
                   onClick={() => setVideo(null)}
                   aria-label="Remove video"
-                  className="focus-ring absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-ink/70 text-white"
+                  className="focus-ring absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-black/70 text-white"
                 >
                   <X size={16} aria-hidden="true" />
                 </button>
@@ -413,13 +413,13 @@ export default function Feed({ viewer, onCoinsChanged }) {
               type="button"
               onClick={() => fileRef.current?.click()}
               aria-label="Attach a picture"
-              className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+              className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-ink/5"
             >
               <ImageSquare size={20} aria-hidden="true" />
             </button>
             <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm" onChange={pickImage} className="sr-only" tabIndex={-1} />
             <motion.span
-              animate={{ color: remaining <= 20 ? '#dd5b00' : '#a39e98' }}
+              animate={{ color: remaining <= 20 ? '#dd5b00' : 'rgb(var(--c-ink-faint))' }}
               transition={{ duration: 0.2 }}
               className="tabular-nums text-sm"
               aria-live="polite"
@@ -436,12 +436,12 @@ export default function Feed({ viewer, onCoinsChanged }) {
         </div>
       </form>
 
-      {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
 
       {posts === null && (
         <div className="mt-6 space-y-3" aria-label="Loading posts">
           {[0, 1].map((i) => (
-            <div key={i} className="card h-28 animate-pulse bg-black/[0.03]" />
+            <div key={i} className="card h-28 animate-pulse bg-ink/[0.03]" />
           ))}
         </div>
       )}
@@ -473,7 +473,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
           <button
             onClick={more}
             disabled={loadingMore}
-            className="focus-ring rounded-full border border-hairline bg-white px-5 py-2 text-sm font-medium text-ink-secondary disabled:opacity-50"
+            className="focus-ring rounded-full border border-hairline bg-canvas px-5 py-2 text-sm font-medium text-ink-secondary disabled:opacity-50"
           >
             {loadingMore ? 'Loading…' : 'Load older posts'}
           </button>

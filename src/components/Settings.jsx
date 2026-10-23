@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CaretRight, SignOut } from '@phosphor-icons/react';
 import { setToken, listInvites, createInvite, updateEmail } from '../lib/db';
+import { getTheme, setTheme } from '../lib/theme';
 import Avatar from './Avatar';
 
 function Row({ children, to, onClick, danger }) {
   const cls = `focus-ring flex w-full items-center justify-between gap-3 px-5 py-4 text-left text-base ${
-    danger ? 'text-red-600' : 'text-ink'
-  } hover:bg-black/[0.03]`;
+    danger ? 'text-danger' : 'text-ink'
+  } hover:bg-ink/[0.03]`;
   if (to) {
     return (
       <Link to={to} className={cls}>
@@ -30,6 +31,7 @@ export default function Settings({ viewer, onLogout }) {
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState(viewer.email ?? '');
   const [emailSaved, setEmailSaved] = useState('');
+  const [theme, setThemeState] = useState(getTheme);
 
   async function saveEmail(e) {
     e.preventDefault();
@@ -101,9 +103,9 @@ export default function Settings({ viewer, onLogout }) {
               maxLength={254}
               placeholder="you@example.com"
               autoComplete="email"
-              className="focus-ring min-w-0 flex-1 rounded-xl border border-hairline bg-white px-3 py-2 text-ink"
+              className="focus-ring min-w-0 flex-1 rounded-xl border border-hairline bg-canvas px-3 py-2 text-ink"
             />
-            <button type="submit" disabled={busy} className="focus-ring rounded-full bg-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+            <button type="submit" disabled={busy} className="focus-ring rounded-full bg-ink px-4 py-2 text-sm font-medium text-canvas disabled:opacity-50">
               Save
             </button>
           </div>
@@ -151,14 +153,34 @@ export default function Settings({ viewer, onLogout }) {
                 {i.used_by ? (
                   <span className="text-sm text-ink-muted">Used by {i.used_by_name}</span>
                 ) : (
-                  <span className="rounded-full bg-accent-green/15 px-2.5 py-0.5 text-sm font-medium text-[#14742a]">Open</span>
+                  <span className="rounded-full bg-success/15 px-2.5 py-0.5 text-sm font-medium text-success">Open</span>
                 )}
               </li>
             ))}
           </ul>
-          {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+          {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
         </section>
       )}
+
+      <section className="card mt-4 overflow-hidden" aria-labelledby="appearance-h">
+        <h2 id="appearance-h" className="px-5 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-ink-muted">Appearance</h2>
+        <div className="flex items-center justify-between gap-3 px-5 py-4">
+          <span id="theme-label" className="text-base text-ink">Dark mode</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={theme === 'dark'}
+            aria-labelledby="theme-label"
+            onClick={() => setThemeState(setTheme(theme === 'dark' ? 'light' : 'dark'))}
+            className={`focus-ring relative h-7 w-12 shrink-0 rounded-full transition-colors ${theme === 'dark' ? 'bg-primary' : 'bg-hairline'}`}
+          >
+            <span
+              className={`absolute top-0.5 size-6 rounded-full bg-canvas shadow-soft transition-transform ${theme === 'dark' ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+      </section>
 
       <section className="card mt-4 overflow-hidden">
         <Row danger onClick={logout}>

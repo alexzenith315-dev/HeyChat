@@ -46,12 +46,12 @@ export default function Creator({ viewer }) {
     <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
       <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Creator</h1>
 
-      {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
 
       {stats === null && !error && (
         <div className="mt-6 space-y-3" aria-label="Loading creator stats">
           {[0, 1].map((i) => (
-            <div key={i} className="card h-20 animate-pulse bg-black/[0.03]" />
+            <div key={i} className="card h-20 animate-pulse bg-ink/[0.03]" />
           ))}
         </div>
       )}
@@ -83,18 +83,18 @@ export default function Creator({ viewer }) {
               <div className="h-48 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={stats.daily} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
-                    <CartesianGrid stroke="#e6e6e6" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#615d59' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#615d59' }} tickLine={false} axisLine={false} />
+                    <CartesianGrid stroke="rgb(var(--c-hairline))" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'rgb(var(--c-ink-muted))' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'rgb(var(--c-ink-muted))' }} tickLine={false} axisLine={false} />
                     <Tooltip
-                      cursor={{ stroke: '#e6e6e6' }}
-                      contentStyle={{ borderRadius: 12, border: '1px solid #e6e6e6', fontSize: 13 }}
+                      cursor={{ stroke: 'rgb(var(--c-hairline))' }}
+                      contentStyle={{ borderRadius: 12, border: '1px solid rgb(var(--c-hairline))', fontSize: 13, background: 'rgb(var(--c-canvas))', color: 'rgb(var(--c-ink))' }}
                       formatter={(v) => [`${v} coins`, 'Earned']}
                     />
                     <Line
                       type="monotone"
                       dataKey="coins"
-                      stroke="#0075de"
+                      stroke="rgb(var(--c-primary-text))"
                       strokeWidth={2}
                       dot={false}
                       activeDot={{ r: 4 }}

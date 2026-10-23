@@ -3,12 +3,40 @@
 @tailwind utilities;
 
 @layer base {
+  /* Theme tokens: RGB triplets so Tailwind opacity modifiers keep working. Light is the default. */
+  :root {
+    --c-canvas: 255 255 255;
+    --c-canvas-soft: 246 245 244;
+    --c-ink: 0 0 0;
+    --c-ink-secondary: 49 48 46;
+    --c-ink-muted: 97 93 89;
+    --c-ink-faint: 163 158 152;
+    --c-hairline: 230 230 230;
+    --c-danger: 220 38 38;
+    --c-primary-text: 0 117 222;
+    --c-success: 20 116 42;
+    color-scheme: light;
+  }
+  .dark {
+    --c-canvas: 24 24 27;
+    --c-canvas-soft: 12 12 14;
+    --c-ink: 244 244 245;
+    --c-ink-secondary: 212 212 216;
+    --c-ink-muted: 161 161 170;
+    --c-ink-faint: 124 124 133;
+    --c-hairline: 46 46 51;
+    --c-danger: 248 113 113;
+    --c-primary-text: 96 165 250;
+    --c-success: 74 222 128;
+    color-scheme: dark;
+  }
+  *, ::before, ::after { --tw-ring-offset-color: rgb(var(--c-canvas)); }
   html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; overscroll-behavior-y: none; }
   body { @apply bg-canvas-soft text-ink antialiased; }
 }
 
 @layer components {
-  .card { @apply rounded-xl border border-hairline bg-white shadow-soft; }
+  .card { @apply rounded-xl border border-hairline bg-canvas shadow-soft; }
   .focus-ring { @apply outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2; }
 }
 

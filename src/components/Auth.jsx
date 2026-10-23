@@ -12,7 +12,7 @@ function Field({ label, ...props }) {
       <input
         {...props}
         required
-        className="w-full rounded-lg border border-hairline bg-white px-3.5 py-3 text-base text-ink outline-none transition focus:border-primary focus:shadow-focus"
+        className="w-full rounded-lg border border-hairline bg-canvas px-3.5 py-3 text-base text-ink outline-none transition focus:border-primary focus:shadow-focus"
       />
     </label>
   );
@@ -66,11 +66,11 @@ export default function Auth({ onAuthed, firstRun }) {
         </div>
 
         {!firstRun && (
-          <div className="relative mb-5 grid grid-cols-2 rounded-full bg-black/5 p-1">
+          <div className="relative mb-5 grid grid-cols-2 rounded-full bg-ink/5 p-1">
             <motion.span
               layoutId="auth-tab"
               transition={spring}
-              className="absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-white shadow-soft"
+              className="absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-canvas shadow-soft"
               style={{ x: isSignup ? '100%' : '0%' }}
             />
             {['login', 'signup'].map((m) => (
@@ -127,7 +127,7 @@ export default function Auth({ onAuthed, firstRun }) {
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+                className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger"
               >
                 {error}
               </motion.p>

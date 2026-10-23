@@ -120,7 +120,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
                 aria-pressed={post.followed}
                 aria-label={`${post.followed ? 'Unfollow' : 'Follow'} ${post.author}`}
                 className={`focus-ring shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
-                  post.followed ? 'border-hairline bg-white text-ink-muted' : 'border-primary bg-primary/10 text-primary'
+                  post.followed ? 'border-hairline bg-canvas text-ink-muted' : 'border-primary bg-primary/10 text-primary-text'
                 }`}
               >
                 {post.followed ? 'Unfollow' : 'Follow'}
@@ -135,7 +135,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
           <button
             onClick={removePost}
             aria-label="Delete post"
-            className="focus-ring rounded-md px-2 py-1 text-xs text-ink-faint hover:text-red-600"
+            className="focus-ring rounded-md px-2 py-1 text-xs text-ink-faint hover:text-danger"
           >
             Delete
           </button>
@@ -158,8 +158,8 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
               onClick={like}
               aria-pressed={!!likes?.mine}
               aria-label={`Like, ${likes?.count ?? 0} so far`}
-              className={`focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm transition-colors hover:bg-black/5 ${
-                likes?.mine ? 'text-primary' : 'text-ink-secondary'
+              className={`focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm transition-colors hover:bg-ink/5 ${
+                likes?.mine ? 'text-primary-text' : 'text-ink-secondary'
               }`}
             >
               <Heart size={20} weight={likes?.mine ? 'fill' : 'regular'} aria-hidden="true" />
@@ -173,7 +173,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           aria-label={`Comments, ${post.comments.length} so far`}
-          className="focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm text-ink-secondary hover:bg-black/5"
+          className="focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm text-ink-secondary hover:bg-ink/5"
         >
           <ChatCircle size={20} aria-hidden="true" />
           <span className="tabular-nums">{post.comments.length}</span>
@@ -181,7 +181,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
         <button
           onClick={share}
           aria-label="Share post"
-          className="focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm text-ink-secondary hover:bg-black/5"
+          className="focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm text-ink-secondary hover:bg-ink/5"
         >
           <ShareNetwork size={20} aria-hidden="true" />
           <span className="text-xs">{copied ? 'Copied' : ''}</span>
@@ -191,7 +191,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
             whileTap={reduce ? undefined : { scale: 0.86 }}
             onClick={() => setGiftOpen(true)}
             aria-label={`Send a gift to ${post.author}`}
-            className="focus-ring ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm text-ink-secondary hover:bg-black/5"
+            className="focus-ring ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm text-ink-secondary hover:bg-ink/5"
           >
             <Gift size={20} aria-hidden="true" />
             <span className="text-xs">Gift</span>
@@ -210,7 +210,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
               aria-pressed={!!r?.mine}
               aria-label={`React ${emoji}, ${r?.count ?? 0} so far`}
               className={`focus-ring inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors ${
-                r?.mine ? 'border-primary bg-primary/10 text-primary' : 'border-hairline bg-white text-ink-secondary'
+                r?.mine ? 'border-primary bg-primary/10 text-primary-text' : 'border-hairline bg-canvas text-ink-secondary'
               }`}
             >
               <span>{emoji}</span>
@@ -240,7 +240,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
                     <span className="font-semibold text-ink">{c.author}</span>
                     <span className="text-xs text-ink-faint">{timeAgo(c.created_at)}</span>
                     {(c.user_id === viewer.id || viewer.isAdmin) && (
-                      <button onClick={() => removeComment(c.id)} className="focus-ring ml-auto text-xs text-ink-faint hover:text-red-600">
+                      <button onClick={() => removeComment(c.id)} className="focus-ring ml-auto text-xs text-ink-faint hover:text-danger">
                         Delete
                       </button>
                     )}
@@ -256,11 +256,11 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
                 maxLength={280}
                 placeholder="Add a reply"
                 aria-label="Write a comment"
-                className="focus-ring min-w-0 flex-1 rounded-full border border-hairline bg-white px-4 py-2 text-base outline-none focus:border-primary"
+                className="focus-ring min-w-0 flex-1 rounded-full border border-hairline bg-canvas px-4 py-2 text-base outline-none focus:border-primary"
               />
               <button
                 disabled={!draft.trim()}
-                className="focus-ring rounded-full bg-ink px-4 text-sm font-medium text-white disabled:opacity-40"
+                className="focus-ring rounded-full bg-ink px-4 text-sm font-medium text-canvas disabled:opacity-40"
               >
                 Send
               </button>
@@ -268,7 +268,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
           </motion.div>
         )}
       </AnimatePresence>
-      {err && <p role="alert" className="mt-2 text-sm text-red-600">{err}</p>}
+      {err && <p role="alert" className="mt-2 text-sm text-danger">{err}</p>}
 
       <AnimatePresence>
         {floats.map((f) => (

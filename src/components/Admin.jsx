@@ -51,10 +51,10 @@ function GrantForm({ user, onDone, onError }) {
           placeholder="Coins"
           required
           aria-invalid={!!error}
-          className="w-full rounded-lg border border-hairline bg-white px-3 py-2 text-sm text-ink outline-none focus:border-primary focus:shadow-focus"
+          className="w-full rounded-lg border border-hairline bg-canvas px-3 py-2 text-sm text-ink outline-none focus:border-primary focus:shadow-focus"
         />
         {error && (
-          <span role="alert" className="mt-1 block text-xs text-red-600">
+          <span role="alert" className="mt-1 block text-xs text-danger">
             {error}
           </span>
         )}
@@ -166,7 +166,7 @@ export default function Admin() {
 
       {loadError && (
         <div role="alert" className="card mt-6 flex flex-wrap items-center justify-between gap-3 p-4">
-          <p className="text-sm text-red-600">{loadError}</p>
+          <p className="text-sm text-danger">{loadError}</p>
           <button
             onClick={() => {
               setLoadError('');
@@ -184,7 +184,7 @@ export default function Admin() {
       {loading && (
         <div className="mt-6 grid grid-cols-2 gap-3" aria-label="Loading admin stats">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="card h-20 animate-pulse bg-black/[0.03]" />
+            <div key={i} className="card h-20 animate-pulse bg-ink/[0.03]" />
           ))}
         </div>
       )}
@@ -206,7 +206,7 @@ export default function Admin() {
             initial={reduce ? false : { opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+            className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger"
           >
             {actionError}
           </motion.p>
@@ -219,7 +219,7 @@ export default function Admin() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={spring}
-            className="mt-4 rounded-lg bg-accent-green/15 px-3 py-2 text-sm text-[#14742a]"
+            className="mt-4 rounded-lg bg-success/15 px-3 py-2 text-sm text-success"
           >
             {notice}
           </motion.p>
@@ -235,7 +235,7 @@ export default function Admin() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search name"
-            className="w-full rounded-full border border-hairline bg-white px-3 py-1.5 text-sm text-ink outline-none focus:border-primary focus:shadow-focus"
+            className="w-full rounded-full border border-hairline bg-canvas px-3 py-1.5 text-sm text-ink outline-none focus:border-primary focus:shadow-focus"
           />
         </label>
       </div>
@@ -251,7 +251,7 @@ export default function Admin() {
                     <p className="flex flex-wrap items-center gap-2 font-semibold text-ink">
                       <span className="truncate">{u.name}</span>
                       {u.isAdmin && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">Admin</span>}
-                      {u.banned && <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">Suspended</span>}
+                      {u.banned && <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">Suspended</span>}
                     </p>
                     <p className="mt-0.5 text-xs text-ink-faint">
                       Joined {joined(u.created_at)} · {fmt(u.postCount)} {u.postCount === 1 ? 'post' : 'posts'} · {fmt(u.coins)} coins
@@ -270,7 +270,7 @@ export default function Admin() {
                         onClick={() => toggleBan(u)}
                         disabled={pending === `ban-${u.id}`}
                         className={`focus-ring rounded-full px-3 py-1.5 text-sm transition active:scale-[0.97] disabled:opacity-60 ${
-                          u.banned ? 'bg-ink text-white' : 'text-red-700 hover:bg-red-50'
+                          u.banned ? 'bg-ink text-canvas' : 'text-danger hover:bg-danger/10'
                         }`}
                       >
                         {u.banned ? 'Unban' : 'Ban'}
@@ -310,7 +310,7 @@ export default function Admin() {
       {usersMore && (
         <button
           onClick={() => loadUsers(search, users.length)}
-          className="focus-ring mt-4 w-full rounded-full border border-hairline bg-white py-2 text-sm font-medium text-ink-secondary hover:bg-black/5"
+          className="focus-ring mt-4 w-full rounded-full border border-hairline bg-canvas py-2 text-sm font-medium text-ink-secondary hover:bg-ink/5"
         >
           Load more users
         </button>
@@ -331,7 +331,7 @@ export default function Admin() {
               <button
                 onClick={() => removePost(p)}
                 disabled={pending === `post-${p.id}`}
-                className="focus-ring shrink-0 rounded-full px-3 py-1.5 text-sm text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                className="focus-ring shrink-0 rounded-full px-3 py-1.5 text-sm text-danger transition hover:bg-danger/10 disabled:opacity-60"
               >
                 Delete
               </button>
@@ -342,7 +342,7 @@ export default function Admin() {
       {postsMore && (
         <button
           onClick={() => loadPosts(posts[posts.length - 1].id)}
-          className="focus-ring mt-4 w-full rounded-full border border-hairline bg-white py-2 text-sm font-medium text-ink-secondary hover:bg-black/5"
+          className="focus-ring mt-4 w-full rounded-full border border-hairline bg-canvas py-2 text-sm font-medium text-ink-secondary hover:bg-ink/5"
         >
           Load older posts
         </button>

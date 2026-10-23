@@ -99,14 +99,14 @@ export default function EditProfile({ viewer, onSaved }) {
   if (!loaded && !error) {
     return (
       <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8" aria-label="Loading profile">
-        <div className="card h-64 animate-pulse bg-black/[0.03]" />
+        <div className="card h-64 animate-pulse bg-ink/[0.03]" />
       </div>
     );
   }
 
   return (
     <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
-      <button onClick={() => navigate(-1)} className="focus-ring mb-4 rounded-full px-3 py-1.5 text-sm text-ink-secondary hover:bg-black/5">
+      <button onClick={() => navigate(-1)} className="focus-ring mb-4 rounded-full px-3 py-1.5 text-sm text-ink-secondary hover:bg-ink/5">
         ← Back
       </button>
       <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Edit profile</h1>
@@ -126,7 +126,7 @@ export default function EditProfile({ viewer, onSaved }) {
                   <button
                     onClick={removeAvatar}
                     disabled={saving}
-                    className="focus-ring rounded-full border border-hairline bg-white px-4 py-2 text-sm font-medium text-ink-secondary disabled:opacity-50"
+                    className="focus-ring rounded-full border border-hairline bg-canvas px-4 py-2 text-sm font-medium text-ink-secondary disabled:opacity-50"
                   >
                     Remove
                   </button>
@@ -143,7 +143,7 @@ export default function EditProfile({ viewer, onSaved }) {
                 value={name}
                 onChange={(e) => setName(e.target.value.slice(0, 24))}
                 maxLength={24}
-                className="focus-ring mt-3 w-full rounded-xl border border-hairline bg-white px-4 py-3 text-base text-ink outline-none focus:border-primary"
+                className="focus-ring mt-3 w-full rounded-xl border border-hairline bg-canvas px-4 py-3 text-base text-ink outline-none focus:border-primary"
               />
             </div>
             <div>
@@ -154,7 +154,7 @@ export default function EditProfile({ viewer, onSaved }) {
                 onChange={(e) => setBio(e.target.value.slice(0, MAX_BIO))}
                 rows={3}
                 placeholder="A line about you"
-                className="focus-ring mt-3 w-full resize-none rounded-xl border border-hairline bg-white px-4 py-3 text-base text-ink placeholder:text-ink-faint outline-none focus:border-primary"
+                className="focus-ring mt-3 w-full resize-none rounded-xl border border-hairline bg-canvas px-4 py-3 text-base text-ink placeholder:text-ink-faint outline-none focus:border-primary"
               />
               <p className={`mt-2 text-right text-sm tabular-nums ${remaining <= 20 ? 'text-accent-orange' : 'text-ink-faint'}`} aria-live="polite">
                 {remaining} left
@@ -169,7 +169,7 @@ export default function EditProfile({ viewer, onSaved }) {
           </form>
 
           {status && <p role="status" className="mt-4 text-sm text-ink-muted">{status}</p>}
-          {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+          {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
         </>
       )}
     </div>

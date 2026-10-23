@@ -135,7 +135,7 @@ export default function Conversation({ viewer }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-xl flex-col">
       <header className="sticky top-[57px] z-10 flex items-center gap-3 border-b border-hairline bg-canvas-soft/80 px-4 py-3 backdrop-blur-xl">
-        <Link to="/messages" aria-label="Back to messages" className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-black/5">
+        <Link to="/messages" aria-label="Back to messages" className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-ink/5">
           <ArrowLeft size={20} aria-hidden="true" />
         </Link>
         <div className="min-w-0 flex-1">
@@ -149,7 +149,7 @@ export default function Conversation({ viewer }) {
         {conv && conv.kind !== 'dm' && (
           <button
             onClick={() => setInfoOpen(true)}
-            className="focus-ring flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-ink-secondary hover:bg-black/5 active:scale-[0.96] transition"
+            className="focus-ring flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-ink-secondary hover:bg-ink/5 active:scale-[0.96] transition"
           >
             <Info size={16} aria-hidden="true" />
             Info
@@ -160,7 +160,7 @@ export default function Conversation({ viewer }) {
             onClick={toggleMute}
             disabled={muteBusy}
             aria-pressed={conv.muted}
-            className="focus-ring flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-ink-secondary hover:bg-black/5 active:scale-[0.96] transition"
+            className="focus-ring flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-ink-secondary hover:bg-ink/5 active:scale-[0.96] transition"
           >
             {conv.muted ? <BellSlash size={16} aria-hidden="true" /> : <Bell size={16} aria-hidden="true" />}
             {conv.muted ? 'Muted' : 'Mute'}
@@ -168,15 +168,15 @@ export default function Conversation({ viewer }) {
         )}
       </header>
 
-      {muteError && <p role="alert" className="px-4 pt-3 text-sm text-red-600">{muteError}</p>}
+      {muteError && <p role="alert" className="px-4 pt-3 text-sm text-danger">{muteError}</p>}
 
       <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 pb-4 pt-4" style={{ maxHeight: '70dvh' }}>
-        {loadError && <p role="alert" className="text-sm text-red-600">{loadError}</p>}
+        {loadError && <p role="alert" className="text-sm text-danger">{loadError}</p>}
 
         {messages === null && !loadError && (
           <div className="space-y-3" aria-label="Loading messages">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-12 w-2/3 animate-pulse rounded-xl bg-black/[0.03]" />
+              <div key={i} className="h-12 w-2/3 animate-pulse rounded-xl bg-ink/[0.03]" />
             ))}
           </div>
         )}
@@ -203,7 +203,7 @@ export default function Conversation({ viewer }) {
                 {!mine && isGroup && <Avatar name={m.sender} src={m.senderAvatar} size="size-7" text="text-xs" />}
                 <div className={`max-w-[80%] ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
                   {!mine && isGroup && <span className="mb-0.5 px-1 text-xs font-medium text-ink-muted">{m.sender}</span>}
-                  <div className={`overflow-hidden rounded-2xl ${mine ? 'bg-primary text-white' : 'border border-hairline bg-white text-ink'}`}>
+                  <div className={`overflow-hidden rounded-2xl ${mine ? 'bg-primary text-white' : 'border border-hairline bg-canvas text-ink'}`}>
                     {m.image && <img src={m.image} alt="Shared picture" className="block max-h-72 w-full object-cover" />}
                     {m.body && <p className="whitespace-pre-wrap break-words px-3.5 py-2 text-[15px] leading-relaxed">{m.body}</p>}
                   </div>
@@ -247,7 +247,7 @@ export default function Conversation({ viewer }) {
               )}
             </AnimatePresence>
             <div className="flex items-end gap-2">
-              <label className="focus-ring grid size-10 shrink-0 cursor-pointer place-items-center rounded-full text-ink-secondary hover:bg-black/5" aria-label="Attach a picture">
+              <label className="focus-ring grid size-10 shrink-0 cursor-pointer place-items-center rounded-full text-ink-secondary hover:bg-ink/5" aria-label="Attach a picture">
                 <ImageSquare size={20} aria-hidden="true" />
                 <input type="file" accept="image/*" onChange={pickImage} className="sr-only" />
               </label>
@@ -260,7 +260,7 @@ export default function Conversation({ viewer }) {
                 rows={1}
                 placeholder="Write a message"
                 aria-label="Message"
-                className="focus-ring max-h-32 min-h-10 flex-1 resize-none rounded-2xl border border-hairline bg-white px-3.5 py-2.5 text-[15px] text-ink placeholder:text-ink-faint outline-none focus:border-primary"
+                className="focus-ring max-h-32 min-h-10 flex-1 resize-none rounded-2xl border border-hairline bg-canvas px-3.5 py-2.5 text-[15px] text-ink placeholder:text-ink-faint outline-none focus:border-primary"
               />
               <button
                 type="submit"
@@ -272,9 +272,9 @@ export default function Conversation({ viewer }) {
               </button>
             </div>
             {body.length > MAX_MESSAGE - 20 && (
-              <p className={`px-1 text-right text-xs tabular-nums ${remaining <= 0 ? 'text-red-600' : 'text-accent-orange'}`}>{remaining} left</p>
+              <p className={`px-1 text-right text-xs tabular-nums ${remaining <= 0 ? 'text-danger' : 'text-accent-orange'}`}>{remaining} left</p>
             )}
-            {sendError && <p role="alert" className="px-1 text-sm text-red-600">{sendError}</p>}
+            {sendError && <p role="alert" className="px-1 text-sm text-danger">{sendError}</p>}
           </form>
         )}
       </div>

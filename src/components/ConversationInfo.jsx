@@ -51,7 +51,7 @@ export default function ConversationInfo({ conv, viewer, onClose, onChanged, onU
       <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-3xl bg-canvas shadow-xl sm:rounded-3xl">
         <div className="flex items-center justify-between border-b border-hairline px-5 py-4">
           <h2 className="font-display text-lg font-bold text-ink">{kindLabel} info</h2>
-          <button onClick={onClose} aria-label="Close" className="focus-ring grid size-9 place-items-center rounded-full text-ink-muted hover:bg-black/5">
+          <button onClick={onClose} aria-label="Close" className="focus-ring grid size-9 place-items-center rounded-full text-ink-muted hover:bg-ink/5">
             <X size={18} aria-hidden="true" />
           </button>
         </div>
@@ -86,7 +86,7 @@ export default function ConversationInfo({ conv, viewer, onClose, onChanged, onU
                 <input
                   value={title}
                   onChange={(e) => setTitle(e.target.value.slice(0, MAX_TITLE))}
-                  className="focus-ring mt-1 w-full rounded-xl border border-hairline bg-white px-3.5 py-2.5 text-[15px] text-ink outline-none focus:border-primary"
+                  className="focus-ring mt-1 w-full rounded-xl border border-hairline bg-canvas px-3.5 py-2.5 text-[15px] text-ink outline-none focus:border-primary"
                 />
               </label>
               <label className="block">
@@ -96,7 +96,7 @@ export default function ConversationInfo({ conv, viewer, onClose, onChanged, onU
                   onChange={(e) => setDescription(e.target.value.slice(0, MAX_DESC))}
                   rows={3}
                   placeholder="What is this about?"
-                  className="focus-ring mt-1 w-full resize-none rounded-xl border border-hairline bg-white px-3.5 py-2.5 text-[15px] text-ink placeholder:text-ink-faint outline-none focus:border-primary"
+                  className="focus-ring mt-1 w-full resize-none rounded-xl border border-hairline bg-canvas px-3.5 py-2.5 text-[15px] text-ink placeholder:text-ink-faint outline-none focus:border-primary"
                 />
                 <span className="mt-1 block text-right text-xs tabular-nums text-ink-faint">{MAX_DESC - description.length} left</span>
               </label>
@@ -105,14 +105,14 @@ export default function ConversationInfo({ conv, viewer, onClose, onChanged, onU
                   <FloppyDisk size={16} aria-hidden="true" />
                   Save
                 </button>
-                <button type="button" onClick={() => setEditing(false)} className="focus-ring rounded-full px-4 py-2 text-sm text-ink-secondary hover:bg-black/5">
+                <button type="button" onClick={() => setEditing(false)} className="focus-ring rounded-full px-4 py-2 text-sm text-ink-secondary hover:bg-ink/5">
                   Cancel
                 </button>
               </div>
             </form>
           )}
 
-          {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+          {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
 
           <h3 className="mt-7 text-sm font-semibold text-ink-secondary">{conv.memberList?.length ?? 0} members</h3>
           <ul className="mt-2 divide-y divide-hairline">
@@ -134,7 +134,7 @@ export default function ConversationInfo({ conv, viewer, onClose, onChanged, onU
                       onClick={() => remove(m)}
                       disabled={busy}
                       aria-label={`Remove ${m.name}`}
-                      className="focus-ring grid size-9 place-items-center rounded-full text-ink-muted hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                      className="focus-ring grid size-9 place-items-center rounded-full text-ink-muted hover:bg-danger/10 hover:text-danger disabled:opacity-40"
                     >
                       <UserMinus size={18} aria-hidden="true" />
                     </button>

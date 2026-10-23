@@ -39,12 +39,12 @@ export default function Notifications({ viewer, onRead }) {
     <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
       <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Notifications</h1>
 
-      {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
 
       {items === null && !error && (
         <div className="mt-6 space-y-3" aria-label="Loading notifications">
           {[0, 1].map((i) => (
-            <div key={i} className="card h-16 animate-pulse bg-black/[0.03]" />
+            <div key={i} className="card h-16 animate-pulse bg-ink/[0.03]" />
           ))}
         </div>
       )}

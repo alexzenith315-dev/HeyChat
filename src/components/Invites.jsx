@@ -61,7 +61,7 @@ export default function Invites({ viewer }) {
         )}
       </AnimatePresence>
 
-      {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
 
       <ul className="mt-6 space-y-2">
         {invites?.length === 0 && <li className="text-ink-faint">No codes yet.</li>}
@@ -71,7 +71,7 @@ export default function Invites({ viewer }) {
             {i.used_by ? (
               <span className="text-sm text-ink-muted">Used by {i.used_by_name}</span>
             ) : (
-              <span className="rounded-full bg-accent-green/15 px-2.5 py-0.5 text-sm font-medium text-[#14742a]">Open</span>
+              <span className="rounded-full bg-success/15 px-2.5 py-0.5 text-sm font-medium text-success">Open</span>
             )}
           </li>
         ))}

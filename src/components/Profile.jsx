@@ -82,8 +82,8 @@ export default function Profile({ viewer }) {
   if (error && !profile) {
     return (
       <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
-        <p role="alert" className="text-sm text-red-600">{error}</p>
-        <button onClick={load} className="focus-ring mt-4 rounded-full border border-hairline bg-white px-5 py-2 text-sm font-medium text-ink-secondary">
+        <p role="alert" className="text-sm text-danger">{error}</p>
+        <button onClick={load} className="focus-ring mt-4 rounded-full border border-hairline bg-canvas px-5 py-2 text-sm font-medium text-ink-secondary">
           Try again
         </button>
       </div>
@@ -93,7 +93,7 @@ export default function Profile({ viewer }) {
   if (!profile) {
     return (
       <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8" aria-label="Loading profile">
-        <div className="card h-56 animate-pulse bg-black/[0.03]" />
+        <div className="card h-56 animate-pulse bg-ink/[0.03]" />
       </div>
     );
   }
@@ -118,7 +118,7 @@ export default function Profile({ viewer }) {
             {isSelf ? (
               <Link
                 to="/profile/edit"
-                className="focus-ring mb-1 rounded-full border border-hairline bg-white px-4 py-1.5 text-sm font-semibold text-ink-secondary hover:bg-black/5"
+                className="focus-ring mb-1 rounded-full border border-hairline bg-canvas px-4 py-1.5 text-sm font-semibold text-ink-secondary hover:bg-ink/5"
               >
                 Edit profile
               </Link>
@@ -130,7 +130,7 @@ export default function Profile({ viewer }) {
                 disabled={busy}
                 aria-pressed={profile.followed}
                 className={`focus-ring mb-1 rounded-full border px-5 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50 ${
-                  profile.followed ? 'border-hairline bg-white text-ink-secondary' : 'border-primary bg-primary text-white'
+                  profile.followed ? 'border-hairline bg-canvas text-ink-secondary' : 'border-primary bg-primary text-white'
                 }`}
               >
                 {profile.followed ? 'Following' : 'Follow'}
@@ -156,7 +156,7 @@ export default function Profile({ viewer }) {
         </div>
       </section>
 
-      {error && <p role="alert" className="mx-4 mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mx-4 mt-4 text-sm text-danger">{error}</p>}
 
       <div role="tablist" aria-label="Profile sections" className="mt-4 flex border-b border-hairline px-2">
         {PROFILE_TABS.map((t) => (
@@ -178,7 +178,7 @@ export default function Profile({ viewer }) {
         {posts === null && (
           <div className="mt-4 space-y-3" aria-label="Loading posts">
             {[0, 1].map((i) => (
-              <div key={i} className="card h-28 animate-pulse bg-black/[0.03]" />
+              <div key={i} className="card h-28 animate-pulse bg-ink/[0.03]" />
             ))}
           </div>
         )}

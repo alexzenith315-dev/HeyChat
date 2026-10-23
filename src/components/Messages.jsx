@@ -52,7 +52,7 @@ export default function Messages({ viewer }) {
         <button
           onClick={() => setComposing((v) => !v)}
           aria-expanded={composing}
-          className="focus-ring flex items-center gap-1.5 rounded-full bg-ink px-4 py-2 text-sm font-medium text-white active:scale-[0.96] transition"
+          className="focus-ring flex items-center gap-1.5 rounded-full bg-ink px-4 py-2 text-sm font-medium text-canvas active:scale-[0.96] transition"
         >
           {composing ? <X size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}
           {composing ? 'Close' : 'New'}
@@ -77,12 +77,12 @@ export default function Messages({ viewer }) {
         )}
       </AnimatePresence>
 
-      {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
 
       {items === null && !error && (
         <div className="mt-6 space-y-3" aria-label="Loading conversations">
           {[0, 1].map((i) => (
-            <div key={i} className="card h-16 animate-pulse bg-black/[0.03]" />
+            <div key={i} className="card h-16 animate-pulse bg-ink/[0.03]" />
           ))}
         </div>
       )}
@@ -102,7 +102,7 @@ export default function Messages({ viewer }) {
               <motion.span
                 layoutId="msg-tab"
                 transition={reduce ? { duration: 0 } : spring}
-                className="absolute inset-0 rounded-full bg-white shadow-soft"
+                className="absolute inset-0 rounded-full bg-canvas shadow-soft"
               />
             )}
             <span className="relative">{t.label}</span>
@@ -239,7 +239,7 @@ function NewConversation({ viewer, onCreated }) {
               <motion.span
                 layoutId="msg-kind"
                 transition={reduce ? { duration: 0 } : spring}
-                className="absolute inset-0 rounded-full bg-white shadow-soft"
+                className="absolute inset-0 rounded-full bg-canvas shadow-soft"
               />
             )}
             <span className={`relative ${kind === t.id ? 'text-ink' : 'text-ink-muted'}`}>{t.label}</span>
@@ -263,7 +263,7 @@ function NewConversation({ viewer, onCreated }) {
               value={title}
               onChange={(e) => setTitle(e.target.value.slice(0, 40))}
               placeholder={kind === 'group' ? 'Weekend crew' : 'announcements'}
-              className="focus-ring mt-1 w-full rounded-xl border border-hairline bg-white px-4 py-2.5 text-base text-ink placeholder:text-ink-faint outline-none focus:border-primary"
+              className="focus-ring mt-1 w-full rounded-xl border border-hairline bg-canvas px-4 py-2.5 text-base text-ink placeholder:text-ink-faint outline-none focus:border-primary"
             />
           </motion.label>
         )}
@@ -286,7 +286,7 @@ function NewConversation({ viewer, onCreated }) {
                   aria-pressed={on}
                   onClick={() => togglePick(u.id)}
                   className={`focus-ring flex items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-sm transition active:scale-[0.96] ${
-                    on ? 'border-primary bg-primary/10 text-ink' : 'border-hairline bg-white text-ink-secondary'
+                    on ? 'border-primary bg-primary/10 text-ink' : 'border-hairline bg-canvas text-ink-secondary'
                   }`}
                 >
                   <Avatar name={u.name} src={u.avatar} size="size-7" text="text-xs" />
@@ -298,7 +298,7 @@ function NewConversation({ viewer, onCreated }) {
         </ul>
       </div>
 
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
 
       <button
         type="submit"

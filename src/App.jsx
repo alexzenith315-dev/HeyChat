@@ -61,7 +61,7 @@ function Shell({ user, onLogout, onUserChanged }) {
             <Link
               to="/wallet"
               aria-label={coins == null ? 'Wallet' : `Wallet, ${coins} coins`}
-              className="focus-ring flex h-9 items-center gap-1 rounded-full px-2 text-sm font-semibold tabular-nums text-ink hover:bg-black/5"
+              className="focus-ring flex h-9 items-center gap-1 rounded-full px-2 text-sm font-semibold tabular-nums text-ink hover:bg-ink/5"
             >
               <Coins size={18} aria-hidden="true" />
               <span>{coins == null ? '…' : coins.toLocaleString('en-US')}</span>
@@ -69,7 +69,7 @@ function Shell({ user, onLogout, onUserChanged }) {
             <Link
               to="/notifications"
               aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
-              className="focus-ring relative grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+              className="focus-ring relative grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-ink/5"
             >
               <Bell size={20} weight={unread ? 'fill' : 'regular'} aria-hidden="true" />
               {unread > 0 && (
@@ -87,7 +87,7 @@ function Shell({ user, onLogout, onUserChanged }) {
             <Link
               to="/messages"
               aria-label="Messages"
-              className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+              className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-ink/5"
             >
               <ChatCircle size={20} aria-hidden="true" />
             </Link>
@@ -95,7 +95,7 @@ function Shell({ user, onLogout, onUserChanged }) {
               <Link
                 to="/admin"
                 aria-label="Admin"
-                className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+                className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-ink/5"
               >
                 <ShieldCheck size={20} aria-hidden="true" />
               </Link>
@@ -103,14 +103,14 @@ function Shell({ user, onLogout, onUserChanged }) {
             <Link
               to="/creator"
               aria-label="Creator"
-              className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+              className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-ink/5"
             >
               <ChartBar size={20} aria-hidden="true" />
             </Link>
             <Link
               to="/settings"
               aria-label="Settings"
-              className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+              className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-ink/5"
             >
               <Gear size={20} aria-hidden="true" />
             </Link>
@@ -136,7 +136,7 @@ function Shell({ user, onLogout, onUserChanged }) {
         </Routes>
       </main>
 
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-white/95 backdrop-blur-xl" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-canvas/95 backdrop-blur-xl" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="mx-auto flex h-16 max-w-xl items-center justify-around px-2">
           {navItems.map((it) => {
             const active = it.match ? it.match(pathname, search) : false;

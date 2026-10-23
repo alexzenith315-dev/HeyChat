@@ -30,18 +30,18 @@ export default function Discover({ viewer }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search the crew"
-          className="focus-ring w-full rounded-full border border-hairline bg-white py-2.5 pl-10 pr-4 text-base outline-none focus:border-primary"
+          className="focus-ring w-full rounded-full border border-hairline bg-canvas py-2.5 pl-10 pr-4 text-base outline-none focus:border-primary"
         />
       </label>
 
-      {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
       {users === null && !error && <p className="mt-6 text-sm text-ink-faint">Loading the crew…</p>}
       {users && shown.length === 0 && <p className="mt-6 text-center text-ink-muted">No one matches that.</p>}
 
-      <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-white">
+      <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-canvas">
         {shown.map((u) => (
           <li key={u.id}>
-            <Link to={`/u/${u.id}`} className="focus-ring flex items-center gap-3 px-4 py-3 hover:bg-black/[0.02]">
+            <Link to={`/u/${u.id}`} className="focus-ring flex items-center gap-3 px-4 py-3 hover:bg-ink/[0.02]">
               <Avatar name={u.name} src={u.avatar} size="size-11" text="text-base" />
               <span className="min-w-0 flex-1 truncate font-semibold text-ink">
                 {u.name}
