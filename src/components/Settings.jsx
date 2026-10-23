@@ -1,193 +1,136 @@
 import { useEffect, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { fetchProfile, updateBio, updateAvatar, MAX_BIO, MAX_AVATAR_BYTES } from '../lib/db';
+import { Link } from 'react-router-dom';
+import { CaretRight, SignOut } from '@phosphor-icons/react';
+import { setToken, listInvites, createInvite } from '../lib/db';
 import Avatar from './Avatar';
 
-const SIZE = 128;
-
-// Crops to a centered square and re-encodes as JPEG, lowering quality until the
-// data URL fits the storage cap.
-function toAvatarDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    if (!file.type.startsWith('image/')) return reject(new Error('Pick an image file.'));
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const side = Math.min(img.naturalWidth, img.naturalHeight);
-      const canvas = document.createElement('canvas');
-      canvas.width = SIZE;
-      canvas.height = SIZE;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, SIZE, SIZE);
-      for (const q of [0.9, 0.8, 0.7, 0.6, 0.5, 0.4]) {
-        const out = canvas.toDataURL('image/jpeg', q);
-        if (out.length <= MAX_AVATAR_BYTES) return resolve(out);
-      }
-      reject(new Error('That picture is too detailed. Try a simpler one.'));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('That picture could not be read.'));
-    };
-    img.src = url;
-  });
+function Row({ children, to, onClick, danger }) {
+  const cls = `focus-ring flex w-full items-center justify-between gap-3 px-5 py-4 text-left text-base ${
+    danger ? 'text-red-600' : 'text-ink'
+  } hover:bg-black/[0.03]`;
+  if (to) {
+    return (
+      <Link to={to} className={cls}>
+        {children}
+        <CaretRight size={16} className="text-ink-faint" aria-hidden="true" />
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} className={cls}>
+      {children}
+    </button>
+  );
 }
 
-export default function Settings({ viewer }) {
-  const [loaded, setLoaded] = useState(false);
-  const [bio, setBio] = useState('');
-  const [avatar, setAvatar] = useState(null);
-  const [savedBio, setSavedBio] = useState('');
-  const [status, setStatus] = useState('');
+export default function Settings({ viewer, onLogout }) {
+  const [invites, setInvites] = useState(null);
+  const [fresh, setFresh] = useState('');
   const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-  const reduce = useReducedMotion();
-  const remaining = MAX_BIO - bio.length;
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    let alive = true;
-    fetchProfile(viewer.id, viewer.id)
-      .then((p) => {
-        if (!alive || !p) return;
-        setBio(p.bio);
-        setSavedBio(p.bio);
-        setAvatar(p.avatar);
-        setLoaded(true);
-      })
-      .catch((e) => alive && setError(e.message));
-    return () => {
-      alive = false;
-    };
-  }, [viewer.id]);
+    if (!viewer.isAdmin) return;
+    listInvites()
+      .then(setInvites)
+      .catch((e) => setError(e.message));
+  }, [viewer.isAdmin]);
 
-  async function saveBio(e) {
-    e.preventDefault();
+  async function generate() {
     setError('');
-    setStatus('');
-    setSaving(true);
+    setBusy(true);
     try {
-      await updateBio(viewer.id, bio);
-      setSavedBio(bio.trim());
-      setBio(bio.trim());
-      setStatus('Bio saved.');
-    } catch (err) {
-      setError(err.message);
+      const code = await createInvite();
+      setFresh(code);
+      setInvites(await listInvites());
+    } catch (e) {
+      setError(e.message);
     } finally {
-      setSaving(false);
+      setBusy(false);
     }
   }
 
-  async function pickAvatar(e) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    setError('');
-    setStatus('');
-    setSaving(true);
-    try {
-      const dataUrl = await toAvatarDataUrl(file);
-      await updateAvatar(viewer.id, dataUrl);
-      setAvatar(dataUrl);
-      setStatus('Picture saved.');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function removeAvatar() {
-    setError('');
-    setStatus('');
-    setSaving(true);
-    try {
-      await updateAvatar(viewer.id, null);
-      setAvatar(null);
-      setStatus('Picture removed.');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!loaded && !error) {
-    return (
-      <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8" aria-label="Loading settings">
-        <div className="card h-64 animate-pulse bg-black/[0.03]" />
-      </div>
-    );
+  function logout() {
+    setToken(null);
+    onLogout?.();
   }
 
   return (
     <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
       <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Settings</h1>
 
-      {error && !loaded && (
-        <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>
-      )}
+      <section className="card mt-6 overflow-hidden" aria-labelledby="account-h">
+        <h2 id="account-h" className="px-5 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-ink-muted">Account</h2>
+        <div className="flex items-center gap-3 px-5 py-3">
+          <Avatar name={viewer.name} size="size-10" text="text-base" />
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-ink">{viewer.name}</p>
+            <p className="text-sm text-ink-muted">{viewer.isAdmin ? 'Owner' : 'Member'}</p>
+          </div>
+        </div>
+        <div className="divide-y divide-hairline">
+          <Row to="/profile/edit">Edit profile</Row>
+          <Row to={`/u/${viewer.id}`}>View my profile</Row>
+        </div>
+      </section>
 
-      {loaded && (
-        <>
-          <section className="card mt-6 p-5">
-            <h2 className="font-semibold text-ink">Picture</h2>
-            <div className="mt-4 flex items-center gap-4">
-              <Avatar name={viewer.name} src={avatar} size="size-16" text="text-2xl" />
-              <div className="flex flex-wrap gap-2">
-                <label className="focus-ring cursor-pointer rounded-full bg-primary px-4 py-2 text-sm font-medium text-white">
-                  Choose image
-                  <input type="file" accept="image/*" onChange={pickAvatar} disabled={saving} className="sr-only" />
-                </label>
-                {avatar && (
-                  <button
-                    onClick={removeAvatar}
-                    disabled={saving}
-                    className="focus-ring rounded-full border border-hairline bg-white px-4 py-2 text-sm font-medium text-ink-secondary disabled:opacity-50"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            </div>
-          </section>
+      <section className="card mt-4 overflow-hidden" aria-labelledby="general-h">
+        <h2 id="general-h" className="px-5 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-ink-muted">General</h2>
+        <div className="divide-y divide-hairline">
+          <Row to="/wallet">Wallet and coins</Row>
+          <Row to="/creator">Creator stats</Row>
+          <Row to="/notifications">Notifications</Row>
+          {viewer.isAdmin && <Row to="/admin">Admin panel</Row>}
+        </div>
+      </section>
 
-          <form onSubmit={saveBio} className="card mt-4 p-5">
-            <label htmlFor="bio" className="font-semibold text-ink">Bio</label>
-            <textarea
-              id="bio"
-              value={bio}
-              onChange={(e) => setBio(e.target.value.slice(0, MAX_BIO))}
-              rows={3}
-              placeholder="A line about you"
-              className="focus-ring mt-3 w-full resize-none rounded-xl border border-hairline bg-white px-4 py-3 text-base text-ink placeholder:text-ink-faint outline-none focus:border-primary"
-            />
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <AnimatePresence mode="popLayout" initial={false}>
-                <motion.span
-                  key={remaining <= 20 ? 'warn' : 'ok'}
-                  initial={reduce ? false : { opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  className={`tabular-nums text-sm ${remaining <= 20 ? 'text-accent-orange' : 'text-ink-faint'}`}
-                  aria-live="polite"
-                >
-                  {remaining} left
-                </motion.span>
-              </AnimatePresence>
+      {viewer.isAdmin && (
+        <section className="card mt-4 p-5" aria-labelledby="invite-h">
+          <h2 id="invite-h" className="font-semibold text-ink">Invite codes</h2>
+          <p className="mt-1 text-sm text-ink-muted">Each code works once. Hand it to one friend.</p>
+          <button
+            onClick={generate}
+            disabled={busy}
+            className="focus-ring mt-4 w-full rounded-full bg-primary py-3 text-sm font-medium text-white transition active:scale-[0.98] disabled:opacity-50"
+          >
+            {busy ? 'Making…' : 'Make a new code'}
+          </button>
+          {fresh && (
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-hairline p-4">
+              <span className="font-mono text-xl font-semibold tracking-[0.2em] text-ink">{fresh}</span>
               <button
-                disabled={saving || bio.trim() === savedBio}
-                className="focus-ring rounded-full bg-primary px-5 py-2 text-sm font-medium text-white transition active:scale-95 disabled:opacity-40"
+                onClick={() => navigator.clipboard?.writeText(fresh)}
+                className="focus-ring rounded-full px-3 py-1.5 text-sm text-primary hover:bg-primary/10"
               >
-                {saving ? 'Saving…' : 'Save bio'}
+                Copy
               </button>
             </div>
-          </form>
-
-          {status && <p role="status" className="mt-4 text-sm text-ink-muted">{status}</p>}
+          )}
+          <ul className="mt-4 space-y-2">
+            {invites?.length === 0 && <li className="text-sm text-ink-faint">No codes yet.</li>}
+            {invites?.map((i) => (
+              <li key={i.code} className="flex items-center justify-between rounded-xl border border-hairline px-4 py-3">
+                <span className="font-mono tracking-[0.15em] text-ink">{i.code}</span>
+                {i.used_by ? (
+                  <span className="text-sm text-ink-muted">Used by {i.used_by_name}</span>
+                ) : (
+                  <span className="rounded-full bg-accent-green/15 px-2.5 py-0.5 text-sm font-medium text-[#14742a]">Open</span>
+                )}
+              </li>
+            ))}
+          </ul>
           {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
-        </>
+        </section>
       )}
+
+      <section className="card mt-4 overflow-hidden">
+        <Row danger onClick={logout}>
+          <span className="flex items-center gap-2">
+            <SignOut size={18} aria-hidden="true" />
+            Log out
+          </span>
+        </Row>
+      </section>
     </div>
   );
 }

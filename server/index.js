@@ -258,6 +258,18 @@ app.post(
 );
 
 app.put(
+  '/api/me/name',
+  wrap(async (req, res) => {
+    const name = String(req.body?.name ?? '').trim();
+    if (!name || name.length > 24) bad('Names need 1–24 characters.');
+    const taken = await one('SELECT id FROM users WHERE name = ? AND id <> ?', [name, me(req)]);
+    if (taken) bad('Someone already has that name.');
+    await exec('UPDATE users SET name = ? WHERE id = ?', [name, me(req)]);
+    res.json({ ok: true, name });
+  }),
+);
+
+app.put(
   '/api/me/bio',
   wrap(async (req, res) => {
     const text = String(req.body?.bio ?? '').trim();

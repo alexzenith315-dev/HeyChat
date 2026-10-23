@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { fetchProfile, fetchFeed, toggleFollowUser } from '../lib/db';
 import Post from './Post';
 import Avatar from './Avatar';
@@ -87,7 +87,14 @@ export default function Profile({ viewer }) {
               <span className="font-semibold text-ink">{profile.following}</span> following
             </p>
           </div>
-          {!isSelf && (
+          {isSelf ? (
+            <Link
+              to="/profile/edit"
+              className="focus-ring shrink-0 rounded-full border border-hairline bg-white px-4 py-1.5 text-sm font-medium text-ink-secondary hover:bg-black/5"
+            >
+              Edit profile
+            </Link>
+          ) : (
             <motion.button
               whileTap={reduce ? undefined : { scale: 0.86 }}
               onClick={toggleFollow}
@@ -104,7 +111,7 @@ export default function Profile({ viewer }) {
         {profile.bio ? (
           <p className="mt-4 whitespace-pre-wrap break-words text-ink-secondary">{profile.bio}</p>
         ) : (
-          <p className="mt-4 text-sm text-ink-faint">{isSelf ? 'Add a bio in Settings.' : 'No bio yet.'}</p>
+          <p className="mt-4 text-sm text-ink-faint">{isSelf ? 'Add a bio from Edit profile.' : 'No bio yet.'}</p>
         )}
       </section>
 

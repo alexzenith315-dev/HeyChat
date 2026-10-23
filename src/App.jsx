@@ -7,7 +7,7 @@ import { ensureSchema, getUserById, fetchUnreadCount, fetchWallet, api, getToken
 import { ensureMessagesSchema, totalUnread } from './lib/messages';
 import Auth from './components/Auth';
 import Feed from './components/Feed';
-import Invites from './components/Invites';
+import EditProfile from './components/EditProfile';
 import Messages from './components/Messages';
 import Conversation from './components/Conversation';
 import Notifications from './components/Notifications';
@@ -19,7 +19,7 @@ import Admin from './components/Admin';
 
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
 
-function Shell({ user, onLogout }) {
+function Shell({ user, onLogout, onUserChanged }) {
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
   const reduce = useReducedMotion();
@@ -52,23 +52,16 @@ function Shell({ user, onLogout }) {
     { label: 'Profile', to: `/u/${user.id}`, icon: UserCircle, match: (p) => p === `/u/${user.id}` },
   ];
 
-  function logout() {
-    setToken(null);
-    onLogout();
-    navigate('/');
-  }
-
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-20 border-b border-hairline bg-canvas-soft/80 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-xl items-center justify-between px-4 py-3">
-          <span className="font-display text-xl font-bold tracking-tight text-ink">HeyChat</span>
-          <div className="flex items-center gap-2">
-            <span className="hidden text-sm text-ink-muted sm:inline">{user.name}</span>
+      <header className="fixed inset-x-0 top-0 z-30 border-b border-hairline bg-canvas-soft/95 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+        <div className="mx-auto flex h-14 max-w-xl items-center justify-between gap-2 px-3">
+          <span className="shrink-0 font-display text-xl font-bold tracking-tight text-ink">HeyChat</span>
+          <div className="flex min-w-0 items-center gap-0.5 whitespace-nowrap">
             <Link
               to="/wallet"
               aria-label={coins == null ? 'Wallet' : `Wallet, ${coins} coins`}
-              className="focus-ring flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm font-semibold tabular-nums text-ink hover:bg-black/5"
+              className="focus-ring flex h-9 items-center gap-1 rounded-full px-2 text-sm font-semibold tabular-nums text-ink hover:bg-black/5"
             >
               <Coins size={18} aria-hidden="true" />
               <span>{coins == null ? '…' : coins.toLocaleString('en-US')}</span>
@@ -76,7 +69,7 @@ function Shell({ user, onLogout }) {
             <Link
               to="/notifications"
               aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
-              className="focus-ring relative grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+              className="focus-ring relative grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
             >
               <Bell size={20} weight={unread ? 'fill' : 'regular'} aria-hidden="true" />
               {unread > 0 && (
@@ -94,24 +87,15 @@ function Shell({ user, onLogout }) {
             <Link
               to="/messages"
               aria-label="Messages"
-              className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+              className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
             >
               <ChatCircle size={20} aria-hidden="true" />
             </Link>
             {user.isAdmin && (
               <Link
-                to="/invites"
-                aria-label="Invites"
-                className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
-              >
-                <ShieldCheck size={20} aria-hidden="true" />
-              </Link>
-            )}
-            {user.isAdmin && (
-              <Link
                 to="/admin"
                 aria-label="Admin"
-                className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+                className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
               >
                 <ShieldCheck size={20} aria-hidden="true" />
               </Link>
@@ -119,25 +103,22 @@ function Shell({ user, onLogout }) {
             <Link
               to="/creator"
               aria-label="Creator"
-              className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+              className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
             >
               <ChartBar size={20} aria-hidden="true" />
             </Link>
             <Link
               to="/settings"
               aria-label="Settings"
-              className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+              className="focus-ring grid size-9 shrink-0 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
             >
               <Gear size={20} aria-hidden="true" />
             </Link>
-            <button onClick={logout} className="focus-ring rounded-full px-3 py-1.5 text-sm text-ink-secondary hover:bg-black/5">
-              Log out
-            </button>
           </div>
         </div>
       </header>
 
-      <main>
+      <main className="pb-20 pt-[calc(3.5rem+env(safe-area-inset-top))]">
         <Routes>
           <Route path="/" element={<Feed viewer={user} onCoinsChanged={refreshCoins} />} />
           <Route path="/discover" element={<Discover viewer={user} />} />
@@ -147,15 +128,16 @@ function Shell({ user, onLogout }) {
           <Route path="/messages" element={<Messages viewer={user} />} />
           <Route path="/messages/:id" element={<Conversation viewer={user} />} />
           <Route path="/u/:id" element={<Profile viewer={user} />} />
-          <Route path="/settings" element={<Settings viewer={user} />} />
-          <Route path="/invites" element={user.isAdmin ? <Invites viewer={user} /> : <Navigate to="/" replace />} />
+          <Route path="/settings" element={<Settings viewer={user} onLogout={onLogout} onUserChanged={onUserChanged} />} />
+          <Route path="/invites" element={<Navigate to="/settings" replace />} />
+          <Route path="/profile/edit" element={<EditProfile viewer={user} onSaved={onUserChanged} />} />
           <Route path="/admin" element={user.isAdmin ? <Admin viewer={user} /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
-        <div className="mx-auto flex max-w-xl items-center justify-around px-2 py-1.5">
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-white/95 backdrop-blur-xl" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div className="mx-auto flex h-16 max-w-xl items-center justify-around px-2">
           {navItems.map((it) => {
             const active = it.match ? it.match(pathname, search) : false;
             const Icon = it.icon;
@@ -246,7 +228,7 @@ export default function App() {
       <AnimatePresence mode="wait" initial={false}>
         {user ? (
           <motion.div key="app" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <Shell user={user} onLogout={() => setUser(null)} />
+            <Shell user={user} onLogout={() => { setToken(null); setUser(null); }} onUserChanged={(u) => setUser((prev) => ({ ...prev, ...u }))} />
           </motion.div>
         ) : (
           <motion.div key="auth" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
