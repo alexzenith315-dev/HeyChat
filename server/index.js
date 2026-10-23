@@ -37,13 +37,17 @@ const one = async (sql, args = []) => (await q(sql, args))[0] ?? null;
 const exec = async (sql, args = []) => pool.query(toPg(sql), args);
 
 // Sequential statements inside a transaction, used where the old code used batch().
+// A statement with `mustAffect: true` must change at least one row, or the whole
+// transaction rolls back and `onEmpty` (an Error) is thrown.
 async function tx(statements) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const results = [];
-    for (const { sql, args = [] } of statements) {
-      results.push((await client.query(toPg(sql), args)).rows);
+    for (const { sql, args = [], mustAffect = false, onEmpty } of statements) {
+      const r = await client.query(toPg(sql), args);
+      if (mustAffect && !r.rowCount) throw onEmpty ?? new Error('tx: statement affected no rows');
+      results.push(r.rows);
     }
     await client.query('COMMIT');
     return results;
@@ -170,12 +174,34 @@ app.post(
     if (await one('SELECT id FROM users WHERE name = ?', [name])) bad('Someone already has that name.');
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const created = await one(
-      'INSERT INTO users (name, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?) RETURNING id, name, is_admin',
-      [name, passwordHash, isFirst, Date.now()],
-    );
-    if (!isFirst) {
-      await exec('UPDATE invites SET used_by = ? WHERE code = ? AND used_by IS NULL', [created.id, invite]);
+    // Claim the invite and create the user in one transaction. Both writes run in a
+    // single BEGIN/COMMIT: the INSERT of the user and the claim UPDATE (which sets
+    // used_by from the new id via a sub-select). A concurrent signup on the same
+    // code blocks on the row lock, then finds used_by set and the claim affects zero
+    // rows, which rolls the whole transaction back. The code is only spent once.
+    const claimCode = isFirst ? null : invite;
+    let created;
+    try {
+      const [users] = await tx([
+        {
+          sql: `INSERT INTO users (name, password_hash, is_admin, created_at)
+                SELECT ?, ?, ?, ? WHERE CAST(? AS TEXT) IS NULL OR EXISTS (SELECT 1 FROM invites WHERE code = ? AND used_by IS NULL)
+                RETURNING id, name, is_admin`,
+          args: [name, passwordHash, isFirst, Date.now(), claimCode, claimCode],
+          mustAffect: true,
+          onEmpty: new UserError('That invite code was already used.'),
+        },
+        {
+          sql: 'UPDATE invites SET used_by = (SELECT id FROM users WHERE name = ?) WHERE code = ? AND used_by IS NULL RETURNING code',
+          args: [name, claimCode],
+          mustAffect: !!claimCode,
+          onEmpty: new UserError('That invite code was already used.'),
+        },
+      ]);
+      created = users[0];
+    } catch (e) {
+      if (e?.code === '23505') bad('Someone already has that name.');
+      throw e;
     }
     const user = publicUser(created);
     res.json({ user, token: issueToken(created) });
@@ -590,6 +616,7 @@ app.post(
     const video = req.body?.video ?? null;
     if (!text && !image && !video) bad('Write something first.');
     if (text.length > 280) bad('Keep it under 280 characters.');
+    if (image !== null && !IMAGE_DATA_URL.test(image)) bad('Pictures must be png, jpeg, gif or webp.');
     if (tooBig(image)) bad('That file is too large (30 MB max).');
     if (video) {
       if (!VIDEO_MIME.test(video)) bad('Videos must be mp4 or webm.');
@@ -843,10 +870,15 @@ app.post(
     if (!recipient) bad('That person is gone.');
     const cost = Number(gift.coin_cost);
     const now = Date.now();
-    const debit = await exec('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?', [cost, senderId, cost]);
-    if (!debit.rowCount) bad(`Not enough coins for ${gift.name}.`);
-    try {
-      await tx([
+    // The debit is the first statement of the transaction, so a failed credit or
+    // ledger write rolls the debit back too. No manual refund needed.
+    await tx([
+        {
+          sql: 'UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?',
+          args: [cost, senderId, cost],
+          mustAffect: true,
+          onEmpty: new UserError(`Not enough coins for ${gift.name}.`),
+        },
         { sql: 'UPDATE users SET coins = COALESCE(coins, 0) + ? WHERE id = ?', args: [cost, recipientId] },
         {
           sql: 'INSERT INTO transactions (user_id, kind, amount, counterpart_id, post_id, gift_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -864,11 +896,7 @@ app.post(
           sql: 'INSERT INTO notifications (user_id, actor_id, kind, post_id, read, created_at) VALUES (?, ?, ?, ?, false, ?)',
           args: [recipientId, senderId, 'gift', postId, now],
         },
-      ]);
-    } catch (e) {
-      await exec('UPDATE users SET coins = coins + ? WHERE id = ?', [cost, senderId]);
-      throw e;
-    }
+    ]);
     res.json({ ok: true });
   }),
 );
@@ -1140,6 +1168,7 @@ app.post(
     const image = req.body?.image ?? null;
     if (!text && !image) bad('Write something first.');
     if (text.length > 1000) bad('Keep it under 1000 characters.');
+    if (image !== null && !IMAGE_DATA_URL.test(image)) bad('Pictures must be png, jpeg, gif or webp.');
     if (tooBig(image)) bad('That file is too large (30 MB max).');
     const c = await one(
       `SELECT c.kind, c.created_by FROM conversations c
