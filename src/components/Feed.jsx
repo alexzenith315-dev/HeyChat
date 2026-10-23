@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { X, ImageSquare, BookmarkSimple, Heart, ChatCircle } from '@phosphor-icons/react';
+import { X, ImageSquare, FilmStrip, BookmarkSimple, Heart, ChatCircle } from '@phosphor-icons/react';
 import {
   api,
   createPost,
@@ -584,6 +584,16 @@ function CommentBox({ postId, viewer, onPosted }) {
   );
 }
 
+// Reels tab: the fullscreen vertical viewer, not a grid. Closing it returns to For you.
+function ReelsTab({ posts, viewer, onChanged, onExit }) {
+  if (posts === null) return <p className="mt-6 text-sm text-ink-faint">Loading…</p>;
+  const reels = (posts ?? []).filter(isVideoPost);
+  if (reels.length === 0) {
+    return <p className="mt-10 text-center text-ink-muted">No reels yet. Post a video and it shows up here.</p>;
+  }
+  return <ReelsViewer reels={reels} startId={reels[0].id} viewer={viewer} onClose={onExit} onChanged={onChanged} />;
+}
+
 function ReelsGrid({ posts, viewer, onChanged }) {
   const [openId, setOpenId] = useState(null);
   if (posts === null) return <p className="mt-6 text-sm text-ink-faint">Loading…</p>;
@@ -636,6 +646,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
   const reduce = useReducedMotion();
   const [image, setImage] = useState(null);
   const [video, setVideo] = useState(null);
+  const [videoMeta, setVideoMeta] = useState(null);
   const remaining = MAX - draft.length;
   const canPost = (draft.trim() || image || video) && !posting;
 
@@ -676,11 +687,13 @@ export default function Feed({ viewer, onCoinsChanged }) {
     try {
       if (file.type.startsWith('video/')) {
         setVideo(await readUploadDataUrl(file, 'video'));
+        setVideoMeta({ name: file.name, size: `${(file.size / (1024 * 1024)).toFixed(1)} MB` });
         setImage(null);
         return;
       }
       setImage(await readUploadDataUrl(file, 'image'));
       setVideo(null);
+      setVideoMeta(null);
     } catch (err) {
       setError(err.message);
     }
@@ -695,6 +708,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
       setDraft('');
       setImage(null);
       setVideo(null);
+      setVideoMeta(null);
       await load();
     } catch (err) {
       setError(err.message);
@@ -763,13 +777,20 @@ export default function Feed({ viewer, onCoinsChanged }) {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="relative mt-3">
-                <video src={video} muted playsInline controls className="max-h-64 w-full rounded-xl bg-black" />
+              <div className="mt-3 inline-flex max-w-full items-center gap-3 rounded-xl border border-hairline bg-canvas-soft p-2 pr-3">
+                <video src={video} muted playsInline preload="metadata" className="h-14 w-10 shrink-0 rounded-md bg-black object-cover" aria-label="Selected video preview" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink">Video ready</p>
+                  <p className="truncate text-xs text-ink-faint">{videoMeta.name} · {videoMeta.size}</p>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setVideo(null)}
+                  onClick={() => {
+                    setVideo(null);
+                    setVideoMeta(null);
+                  }}
                   aria-label="Remove video"
-                  className="focus-ring absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-black/70 text-white"
+                  className="focus-ring ml-1 grid size-7 place-items-center rounded-full text-ink-secondary hover:bg-ink/5"
                 >
                   <X size={16} aria-hidden="true" />
                 </button>
@@ -786,6 +807,15 @@ export default function Feed({ viewer, onCoinsChanged }) {
               className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-ink/5"
             >
               <ImageSquare size={20} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              aria-label="Attach a video (mp4 or webm, 30 MB max)"
+              title="Attach a video (mp4 or webm, 30 MB max)"
+              className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-ink/5"
+            >
+              <FilmStrip size={20} aria-hidden="true" />
             </button>
             <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm" onChange={pickImage} className="sr-only" tabIndex={-1} />
             <motion.span
@@ -824,7 +854,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
       )}
 
       {tab === 'reels' ? (
-        <ReelsGrid posts={visible} viewer={viewer} onChanged={load} />
+        <ReelsTab posts={visible} viewer={viewer} onChanged={load} onExit={() => setTab('foryou')} />
       ) : (
         <motion.div layout className="mt-6 space-y-3">
           <AnimatePresence initial={false}>

@@ -256,7 +256,7 @@ app.get(
   wrap(async (req, res) => {
     const id = Number(req.params.id);
     const u = await one(
-      `SELECT u.id, u.name, u.bio, u.avatar,
+      `SELECT u.id, u.name, u.bio, u.avatar, u.cover,
          (SELECT COUNT(*) FROM follows WHERE followee_id = u.id) AS followers,
          (SELECT COUNT(*) FROM follows WHERE follower_id = u.id) AS following,
          (SELECT COUNT(*) FROM follows WHERE follower_id = ? AND followee_id = u.id) AS followed
@@ -269,6 +269,7 @@ app.get(
       name: u.name,
       bio: u.bio ?? '',
       avatar: u.avatar ?? null,
+      cover: u.cover ?? null,
       followers: Number(u.followers),
       following: Number(u.following),
       followed: Number(u.followed) > 0,
@@ -468,6 +469,17 @@ app.put(
     if (text.length > 160) bad('Keep your bio under 160 characters.');
     await exec('UPDATE users SET bio = ? WHERE id = ?', [text, me(req)]);
     res.json({ ok: true });
+  }),
+);
+
+app.put(
+  '/api/me/cover',
+  wrap(async (req, res) => {
+    const dataUrl = req.body?.dataUrl ?? null;
+    if (dataUrl !== null && !/^data:image\//.test(dataUrl)) bad('Cover photos take pictures only.');
+    if (tooBig(dataUrl)) bad('That file is too large (30 MB max).');
+    await exec('UPDATE users SET cover = ? WHERE id = ?', [dataUrl, me(req)]);
+    res.json({ ok: true, cover: dataUrl });
   }),
 );
 
@@ -1343,6 +1355,7 @@ async function migrate() {
   await exec('ALTER TABLE conversations ADD COLUMN IF NOT EXISTS description TEXT');
   await exec('ALTER TABLE posts ADD COLUMN IF NOT EXISTS video TEXT');
   await exec('ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT');
+  await exec('ALTER TABLE users ADD COLUMN IF NOT EXISTS cover TEXT');
   await exec('CREATE TABLE IF NOT EXISTS statuses (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT, image TEXT, created_at BIGINT NOT NULL)');
   await exec('CREATE INDEX IF NOT EXISTS statuses_user_created ON statuses (user_id, created_at)');
   await exec('CREATE TABLE IF NOT EXISTS status_media (status_id INTEGER NOT NULL, position INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT \'image\', data TEXT NOT NULL, PRIMARY KEY (status_id, position))');

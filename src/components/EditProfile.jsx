@@ -1,102 +1,170 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchProfile, updateBio, updateAvatar, updateName, MAX_BIO, readUploadDataUrl } from '../lib/db';
+import { Camera } from '@phosphor-icons/react';
+import { fetchMe, fetchProfile, updateBio, updateAvatar, updateCover, updateEmail, updateName, MAX_BIO, readUploadDataUrl } from '../lib/db';
 import Avatar from './Avatar';
 
-const SIZE = 128;
+const NAME_MAX = 24;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Crops to a centered square and re-encodes as JPEG, lowering quality until the
-// data URL fits the storage cap.
+// Full edit page: tappable avatar and cover photo, name, bio and email fields.
+// Nothing is sent until Save; Cancel discards every staged change.
 export default function EditProfile({ viewer, onSaved }) {
   const navigate = useNavigate();
+  const avatarRef = useRef(null);
+  const coverRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
+  const [base, setBase] = useState({ name: viewer.name, bio: '', email: '', avatar: null, cover: null });
   const [name, setName] = useState(viewer.name);
   const [bio, setBio] = useState('');
+  const [email, setEmail] = useState('');
   const [avatar, setAvatar] = useState(null);
-  const [savedBio, setSavedBio] = useState('');
-  const [status, setStatus] = useState('');
-  const [error, setError] = useState('');
+  const [cover, setCover] = useState(null);
+  const [pendingAvatar, setPendingAvatar] = useState(undefined); // undefined = unchanged
+  const [pendingCover, setPendingCover] = useState(undefined);
+  const [status, setStatus] = useState(null); // { kind: 'ok' | 'err', text }
+  const [loadError, setLoadError] = useState('');
+  const [fieldErr, setFieldErr] = useState({});
   const [saving, setSaving] = useState(false);
-  const remaining = MAX_BIO - bio.length;
 
   useEffect(() => {
     let alive = true;
-    fetchProfile(viewer.id, viewer.id)
-      .then((p) => {
-        if (!alive || !p) return;
-        setName(p.name);
-        setBio(p.bio);
-        setSavedBio(p.bio);
-        setAvatar(p.avatar);
+    Promise.all([fetchMe(), fetchProfile(viewer.id)])
+      .then(([me, p]) => {
+        if (!alive) return;
+        const next = {
+          name: p?.name ?? me?.name ?? viewer.name,
+          bio: p?.bio ?? '',
+          email: me?.email ?? '',
+          avatar: p?.avatar ?? null,
+          cover: p?.cover ?? null,
+        };
+        setBase(next);
+        setName(next.name);
+        setBio(next.bio);
+        setEmail(next.email);
+        setAvatar(next.avatar);
+        setCover(next.cover);
         setLoaded(true);
       })
-      .catch((e) => alive && setError(e.message));
+      .catch((e) => alive && setLoadError(e.message || 'Could not load your profile.'));
     return () => {
       alive = false;
     };
-  }, [viewer.id]);
+  }, [viewer.id, viewer.name]);
 
-  async function saveProfile(e) {
+  const dirty =
+    name.trim() !== base.name ||
+    bio.trim() !== base.bio ||
+    email.trim().toLowerCase() !== base.email ||
+    pendingAvatar !== undefined ||
+    pendingCover !== undefined;
+
+  async function pickImage(e, kind) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setStatus(null);
+    try {
+      const dataUrl = await readUploadDataUrl(file, 'image');
+      if (kind === 'avatar') {
+        setAvatar(dataUrl);
+        setPendingAvatar(dataUrl);
+      } else {
+        setCover(dataUrl);
+        setPendingCover(dataUrl);
+      }
+    } catch (err) {
+      setStatus({ kind: 'err', text: err.message });
+    }
+  }
+
+  function removeImage(kind) {
+    if (kind === 'avatar') {
+      setAvatar(null);
+      setPendingAvatar(null);
+    } else {
+      setCover(null);
+      setPendingCover(null);
+    }
+  }
+
+  function validate() {
+    const errs = {};
+    const n = name.trim();
+    if (!n) errs.name = 'Enter a display name.';
+    else if (n.length > NAME_MAX) errs.name = `Keep it under ${NAME_MAX} characters.`;
+    if (bio.trim().length > MAX_BIO) errs.bio = `Keep your bio under ${MAX_BIO} characters.`;
+    const em = email.trim();
+    if (em && !EMAIL_RE.test(em)) errs.email = 'Enter a valid email address.';
+    return errs;
+  }
+
+  async function save(e) {
     e.preventDefault();
-    setError('');
-    setStatus('');
+    setStatus(null);
+    const errs = validate();
+    setFieldErr(errs);
+    if (Object.keys(errs).length) return;
     setSaving(true);
     try {
       const trimmedName = name.trim();
       const trimmedBio = bio.trim();
-      if (trimmedName !== viewer.name) {
-        const saved = await updateName(viewer.id, trimmedName);
-        onSaved?.({ name: saved });
+      const trimmedEmail = email.trim().toLowerCase();
+      const changed = {};
+      if (trimmedName !== base.name) {
+        changed.name = await updateName(viewer.id, trimmedName);
       }
-      if (trimmedBio !== savedBio) {
-        await updateBio(viewer.id, trimmedBio);
+      if (trimmedBio !== base.bio) await updateBio(viewer.id, trimmedBio);
+      if (trimmedEmail !== base.email) await updateEmail(trimmedEmail);
+      if (pendingAvatar !== undefined) {
+        await updateAvatar(viewer.id, pendingAvatar);
+        changed.avatar = pendingAvatar;
       }
-      setSavedBio(trimmedBio);
-      setBio(trimmedBio);
-      setName(trimmedName);
-      setStatus('Profile saved.');
+      if (pendingCover !== undefined) {
+        await updateCover(pendingCover);
+        changed.cover = pendingCover;
+      }
+      // Re-read from the server so the form shows what was actually stored.
+      const [me, p] = await Promise.all([fetchMe(), fetchProfile(viewer.id)]);
+      const next = {
+        name: p?.name ?? me?.name ?? trimmedName,
+        bio: p?.bio ?? '',
+        email: me?.email ?? '',
+        avatar: p?.avatar ?? null,
+        cover: p?.cover ?? null,
+      };
+      setBase(next);
+      setName(next.name);
+      setBio(next.bio);
+      setEmail(next.email);
+      setAvatar(next.avatar);
+      setCover(next.cover);
+      setPendingAvatar(undefined);
+      setPendingCover(undefined);
+      setFieldErr({});
+      onSaved?.({ name: next.name, avatar: next.avatar, cover: next.cover, email: next.email });
+      setStatus({ kind: 'ok', text: 'Profile saved.' });
     } catch (err) {
-      setError(err.message);
+      setStatus({ kind: 'err', text: err.message || 'Could not save. Try again.' });
     } finally {
       setSaving(false);
     }
   }
 
-  async function pickAvatar(e) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    setError('');
-    setStatus('');
-    setSaving(true);
-    try {
-      const dataUrl = await readUploadDataUrl(file, 'image');
-      await updateAvatar(viewer.id, dataUrl);
-      setAvatar(dataUrl);
-      setStatus('Picture saved.');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
+  function cancel() {
+    navigate(-1);
   }
 
-  async function removeAvatar() {
-    setError('');
-    setStatus('');
-    setSaving(true);
-    try {
-      await updateAvatar(viewer.id, null);
-      setAvatar(null);
-      setStatus('Picture removed.');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
+  if (loadError) {
+    return (
+      <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
+        <p role="alert" className="text-sm text-danger">{loadError}</p>
+      </div>
+    );
   }
 
-  if (!loaded && !error) {
+  if (!loaded) {
     return (
       <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8" aria-label="Loading profile">
         <div className="card h-64 animate-pulse bg-ink/[0.03]" />
@@ -104,74 +172,148 @@ export default function EditProfile({ viewer, onSaved }) {
     );
   }
 
+  const inputClass =
+    'focus-ring mt-2 w-full rounded-xl border border-hairline bg-canvas px-4 py-3 text-base text-ink placeholder:text-ink-faint outline-none focus:border-primary';
+
   return (
-    <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
-      <button onClick={() => navigate(-1)} className="focus-ring mb-4 rounded-full px-3 py-1.5 text-sm text-ink-secondary hover:bg-ink/5">
-        ← Back
-      </button>
-      <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Edit profile</h1>
+    <div className="mx-auto w-full max-w-xl pb-28 sm:pt-6">
+      <form onSubmit={save} noValidate className="card overflow-hidden">
+        {/* Header bar */}
+        <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
+          <button
+            type="button"
+            onClick={cancel}
+            disabled={saving}
+            className="focus-ring rounded-full px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-ink/5 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <h1 className="font-display text-base font-bold text-ink">Edit profile</h1>
+          <button
+            type="submit"
+            disabled={saving || !dirty}
+            className="focus-ring rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-white transition active:scale-95 disabled:opacity-40"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
 
-      {loaded && (
-        <>
-          <section className="card mt-6 p-5">
-            <h2 className="font-semibold text-ink">Picture</h2>
-            <div className="mt-4 flex items-center gap-4">
-              <Avatar name={name} src={avatar} size="size-16" text="text-2xl" />
-              <div className="flex flex-wrap gap-2">
-                <label className="focus-ring cursor-pointer rounded-full bg-primary px-4 py-2 text-sm font-medium text-white">
-                  Choose image
-                  <input type="file" accept="image/*" onChange={pickAvatar} disabled={saving} className="sr-only" />
-                </label>
-                {avatar && (
-                  <button
-                    onClick={removeAvatar}
-                    disabled={saving}
-                    className="focus-ring rounded-full border border-hairline bg-canvas px-4 py-2 text-sm font-medium text-ink-secondary disabled:opacity-50"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            </div>
-          </section>
+        {/* Cover photo: tappable */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => coverRef.current?.click()}
+            disabled={saving}
+            aria-label="Change cover photo"
+            className="focus-ring group relative block h-32 w-full overflow-hidden bg-accent-sky/35 sm:h-40"
+          >
+            {cover && <img src={cover} alt="" className="absolute inset-0 size-full object-cover" />}
+            <span className="absolute inset-0 grid place-items-center bg-black/0 transition-colors group-hover:bg-black/20">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-xs font-semibold text-white">
+                <Camera size={16} aria-hidden="true" /> {cover ? 'Change cover' : 'Add cover'}
+              </span>
+            </span>
+          </button>
+          <input ref={coverRef} type="file" accept="image/*" onChange={(e) => pickImage(e, 'cover')} className="sr-only" tabIndex={-1} />
 
-          <form onSubmit={saveProfile} className="card mt-4 space-y-5 p-5">
-            <div>
-              <label htmlFor="display-name" className="font-semibold text-ink">Display name</label>
-              <input
-                id="display-name"
-                value={name}
-                onChange={(e) => setName(e.target.value.slice(0, 24))}
-                maxLength={24}
-                className="focus-ring mt-3 w-full rounded-xl border border-hairline bg-canvas px-4 py-3 text-base text-ink outline-none focus:border-primary"
-              />
+          {/* Avatar: tappable, overlaps the cover */}
+          <div className="px-4">
+            <div className="-mt-12 inline-block">
+              <button
+                type="button"
+                onClick={() => avatarRef.current?.click()}
+                disabled={saving}
+                aria-label="Change profile picture"
+                className="focus-ring group relative block rounded-full border-4 border-canvas"
+              >
+                <Avatar name={name || viewer.name} src={avatar} size="size-24" text="text-3xl" />
+                <span className="absolute inset-0 grid place-items-center rounded-full bg-black/0 transition-colors group-hover:bg-black/30">
+                  <Camera size={22} className="text-white opacity-0 group-hover:opacity-100" aria-hidden="true" />
+                </span>
+              </button>
+              <input ref={avatarRef} type="file" accept="image/*" onChange={(e) => pickImage(e, 'avatar')} className="sr-only" tabIndex={-1} />
             </div>
-            <div>
-              <label htmlFor="bio" className="font-semibold text-ink">Bio</label>
-              <textarea
-                id="bio"
-                value={bio}
-                onChange={(e) => setBio(e.target.value.slice(0, MAX_BIO))}
-                rows={3}
-                placeholder="A line about you"
-                className="focus-ring mt-3 w-full resize-none rounded-xl border border-hairline bg-canvas px-4 py-3 text-base text-ink placeholder:text-ink-faint outline-none focus:border-primary"
-              />
-              <p className={`mt-2 text-right text-sm tabular-nums ${remaining <= 20 ? 'text-accent-orange' : 'text-ink-faint'}`} aria-live="polite">
-                {remaining} left
-              </p>
+            <div className="mt-2 flex flex-wrap gap-2 text-sm">
+              <button type="button" onClick={() => avatarRef.current?.click()} disabled={saving} className="focus-ring rounded-full border border-hairline px-3 py-1 font-medium text-ink-secondary hover:bg-ink/5 disabled:opacity-50">
+                Change picture
+              </button>
+              {avatar && (
+                <button type="button" onClick={() => removeImage('avatar')} disabled={saving} className="focus-ring rounded-full px-3 py-1 font-medium text-ink-muted hover:bg-ink/5 disabled:opacity-50">
+                  Remove picture
+                </button>
+              )}
+              {cover && (
+                <button type="button" onClick={() => removeImage('cover')} disabled={saving} className="focus-ring rounded-full px-3 py-1 font-medium text-ink-muted hover:bg-ink/5 disabled:opacity-50">
+                  Remove cover
+                </button>
+              )}
             </div>
-            <button
-              disabled={saving || (name.trim() === viewer.name && bio.trim() === savedBio)}
-              className="focus-ring w-full rounded-full bg-primary py-3 text-sm font-medium text-white transition active:scale-[0.98] disabled:opacity-40"
-            >
-              {saving ? 'Saving…' : 'Save profile'}
-            </button>
-          </form>
+          </div>
+        </div>
 
-          {status && <p role="status" className="mt-4 text-sm text-ink-muted">{status}</p>}
-          {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
-        </>
-      )}
+        {/* Fields */}
+        <div className="space-y-5 px-4 pb-5 pt-5">
+          <div>
+            <label htmlFor="display-name" className="text-sm font-semibold text-ink">Display name</label>
+            <input
+              id="display-name"
+              value={name}
+              onChange={(e) => setName(e.target.value.slice(0, NAME_MAX))}
+              maxLength={NAME_MAX}
+              autoComplete="nickname"
+              aria-invalid={!!fieldErr.name}
+              aria-describedby={fieldErr.name ? 'display-name-err' : undefined}
+              className={inputClass}
+            />
+            <div className="mt-1 flex justify-between text-xs text-ink-faint">
+              {fieldErr.name ? <span id="display-name-err" className="text-danger">{fieldErr.name}</span> : <span />}
+              <span className="tabular-nums">{name.length}/{NAME_MAX}</span>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="bio" className="text-sm font-semibold text-ink">Bio</label>
+            <textarea
+              id="bio"
+              value={bio}
+              onChange={(e) => setBio(e.target.value.slice(0, MAX_BIO))}
+              rows={3}
+              placeholder="A line about you"
+              aria-invalid={!!fieldErr.bio}
+              className={`${inputClass} resize-none`}
+            />
+            <div className="mt-1 flex justify-between text-xs text-ink-faint">
+              {fieldErr.bio ? <span className="text-danger">{fieldErr.bio}</span> : <span />}
+              <span className={`tabular-nums ${MAX_BIO - bio.length <= 20 ? 'text-accent-orange' : ''}`} aria-live="polite">
+                {MAX_BIO - bio.length} left
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="email" className="text-sm font-semibold text-ink">Email</label>
+            <input
+              id="email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              aria-invalid={!!fieldErr.email}
+              className={inputClass}
+            />
+            {fieldErr.email && <p className="mt-1 text-xs text-danger">{fieldErr.email}</p>}
+            <p className="mt-1 text-xs text-ink-faint">Only you can see this.</p>
+          </div>
+        </div>
+
+        {status && (
+          <p role={status.kind === 'err' ? 'alert' : 'status'} className={`mx-4 mb-4 rounded-xl px-4 py-3 text-sm ${status.kind === 'err' ? 'bg-danger/10 text-danger' : 'bg-success/10 text-success'}`}>
+            {status.text}
+          </p>
+        )}
+      </form>
     </div>
   );
 }

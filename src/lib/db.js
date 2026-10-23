@@ -253,6 +253,16 @@ export async function updateAvatar(userId, dataUrl) {
   await api('PUT', '/api/me/avatar', { dataUrl });
 }
 
+export async function updateCover(dataUrl) {
+  const data = await api('PUT', '/api/me/cover', { dataUrl });
+  return data.cover;
+}
+
+// The signed-in user's own record (includes email, which public profiles don't expose).
+export function fetchMe() {
+  return api('GET', '/api/me');
+}
+
 /* ---------- wallet ---------- */
 
 export function fetchWallet() {
