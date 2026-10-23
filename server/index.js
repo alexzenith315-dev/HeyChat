@@ -362,6 +362,7 @@ app.put(
 /* ---- feed & posts ---- */
 
 const PAGE_SIZE = 20;
+const ADMIN_PAGE = 25;
 const VIDEO_MIME = /^data:(video\/(mp4|webm));base64,/;
 
 app.get(
@@ -370,7 +371,7 @@ app.get(
     const viewer = me(req);
     const beforeId = req.query.before ? Number(req.query.before) : null;
     const authorId = req.query.author ? Number(req.query.author) : null;
-    const where = [];
+    const where = ['u.banned = false'];
     const args = [];
     if (beforeId) {
       where.push('p.id < ?');
@@ -1043,13 +1044,25 @@ app.get(
   '/api/admin/users',
   requireAdmin,
   wrap(async (req, res) => {
+    const term = String(req.query.q ?? '').trim().slice(0, 24).replace(/[\\%_]/g, '\\$&');
+    const offset = Math.max(0, Math.floor(Number(req.query.offset) || 0));
+    const args = [];
+    let where = '';
+    if (term) {
+      where = "WHERE u.name ILIKE ? ESCAPE '\\'";
+      args.push(`%${term}%`);
+    }
+    args.push(ADMIN_PAGE + 1, offset);
     const rows = await q(
       `SELECT u.id, u.name, u.created_at, u.coins, u.banned, u.is_admin,
          (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) AS post_count
-       FROM users u ORDER BY u.created_at DESC, u.id DESC LIMIT 200`,
+       FROM users u ${where} ORDER BY u.created_at DESC, u.id DESC LIMIT ? OFFSET ?`,
+      args,
     );
-    res.json(
-      rows.map((r) => ({
+    const hasMore = rows.length > ADMIN_PAGE;
+    res.json({
+      hasMore,
+      users: rows.slice(0, ADMIN_PAGE).map((r) => ({
         id: r.id,
         name: r.name,
         created_at: Number(r.created_at),
@@ -1058,7 +1071,7 @@ app.get(
         isAdmin: !!r.is_admin,
         postCount: Number(r.post_count),
       })),
-    );
+    });
   }),
 );
 
@@ -1066,11 +1079,19 @@ app.get(
   '/api/admin/posts',
   requireAdmin,
   wrap(async (req, res) => {
+    const beforeId = req.query.before ? Number(req.query.before) : null;
     const rows = await q(
       `SELECT p.id, p.body, p.created_at, u.name AS author
-       FROM posts p JOIN users u ON u.id = p.user_id ORDER BY p.id DESC LIMIT 25`,
+       FROM posts p JOIN users u ON u.id = p.user_id
+       WHERE (? ::int IS NULL OR p.id < ?)
+       ORDER BY p.id DESC LIMIT ?`,
+      [beforeId, beforeId, ADMIN_PAGE + 1],
     );
-    res.json(rows);
+    const hasMore = rows.length > ADMIN_PAGE;
+    res.json({
+      hasMore,
+      posts: rows.slice(0, ADMIN_PAGE).map((r) => ({ ...r, id: Number(r.id), created_at: Number(r.created_at) })),
+    });
   }),
 );
 
@@ -1080,7 +1101,11 @@ app.post(
   wrap(async (req, res) => {
     const userId = Number(req.params.id);
     if (userId === me(req)) bad('You can’t suspend your own account.');
-    await exec('UPDATE users SET banned = ? WHERE id = ?', [!!req.body?.banned, userId]);
+    const target = await one('SELECT id, is_admin FROM users WHERE id = ?', [userId]);
+    if (!target) return res.status(404).json({ error: 'That account no longer exists.' });
+    const banned = !!req.body?.banned;
+    if (banned && target.is_admin) bad('Owner accounts can’t be suspended.');
+    await exec('UPDATE users SET banned = ? WHERE id = ?', [banned, userId]);
     res.json({ ok: true });
   }),
 );
@@ -1092,15 +1117,16 @@ app.post(
     const userId = Number(req.params.id);
     const amount = Number(req.body?.amount);
     if (!Number.isInteger(amount) || amount < 1 || amount > 10000) bad('Enter a whole number from 1 to 10,000.');
-    const updated = await exec('UPDATE users SET coins = COALESCE(coins, 0) + ? WHERE id = ?', [amount, userId]);
-    if (!updated.rowCount) bad('That account no longer exists.');
-    await exec('INSERT INTO transactions (user_id, kind, amount, counterpart_id, created_at) VALUES (?, ?, ?, ?, ?)', [
-      userId,
-      'admin_grant',
-      amount,
-      me(req),
-      Date.now(),
-    ]);
+    // One statement: the balance update and the ledger row commit or fail together.
+    const done = await q(
+      `WITH upd AS (
+         UPDATE users SET coins = COALESCE(coins, 0) + ? WHERE id = ? RETURNING id
+       )
+       INSERT INTO transactions (user_id, kind, amount, counterpart_id, created_at)
+       SELECT upd.id, 'admin_grant', ?, ?, ? FROM upd RETURNING id`,
+      [amount, userId, amount, me(req), Date.now()],
+    );
+    if (!done.length) bad('That account no longer exists.');
     res.json({ ok: true });
   }),
 );

@@ -102,12 +102,16 @@ export function fetchAdminStats() {
   return api('GET', '/api/admin/stats');
 }
 
-export function fetchAdminUsers() {
-  return api('GET', '/api/admin/users');
+export function fetchAdminUsers({ q = '', offset = 0 } = {}) {
+  const params = new URLSearchParams();
+  if (q.trim()) params.set('q', q.trim());
+  if (offset) params.set('offset', String(offset));
+  const qs = params.toString();
+  return api('GET', `/api/admin/users${qs ? `?${qs}` : ''}`);
 }
 
-export function fetchRecentPosts() {
-  return api('GET', '/api/admin/posts');
+export function fetchRecentPosts({ before = null } = {}) {
+  return api('GET', `/api/admin/posts${before ? `?before=${Number(before)}` : ''}`);
 }
 
 export async function setUserBanned(adminId, userId, banned) {

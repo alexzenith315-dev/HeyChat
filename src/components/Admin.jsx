@@ -1,15 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ensureMessagesSchema } from '../lib/messages';
-import {
-  fetchAdminStats,
-  fetchAdminUsers,
-  fetchRecentPosts,
-  setUserBanned,
-  grantCoins,
-  deletePost,
-  MAX_GRANT,
-} from '../lib/db';
+import { fetchAdminStats, fetchAdminUsers, fetchRecentPosts, setUserBanned, grantCoins, deletePost, MAX_GRANT } from '../lib/db';
 import { timeAgo } from '../lib/time';
 
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
@@ -25,7 +16,7 @@ function Stat({ label, value }) {
   );
 }
 
-function GrantForm({ user, adminId, onDone }) {
+function GrantForm({ user, onDone, onError }) {
   const [amount, setAmount] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -35,10 +26,11 @@ function GrantForm({ user, adminId, onDone }) {
     setError('');
     setBusy(true);
     try {
-      await grantCoins(adminId, user.id, Number(amount));
+      await grantCoins(null, user.id, Number(amount));
       onDone(`Granted ${fmt(amount)} coins to ${user.name}.`);
     } catch (err) {
       setError(err.message);
+      onError?.(err.message);
     } finally {
       setBusy(false);
     }
@@ -70,7 +62,7 @@ function GrantForm({ user, adminId, onDone }) {
       <button
         type="submit"
         disabled={busy}
-        className="focus-ring rounded-full bg-primary px-4 py-2 text-sm font-medium text-white transition active:scale-[0.98] disabled:opacity-60"
+        className="focus-ring shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-medium text-white transition active:scale-[0.98] disabled:opacity-60"
       >
         {busy ? 'Granting…' : 'Grant'}
       </button>
@@ -78,33 +70,67 @@ function GrantForm({ user, adminId, onDone }) {
   );
 }
 
-export default function Admin({ viewer }) {
+export default function Admin() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState(null);
+  const [usersMore, setUsersMore] = useState(false);
   const [posts, setPosts] = useState(null);
+  const [postsMore, setPostsMore] = useState(false);
+  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState('');
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
   const [grantingId, setGrantingId] = useState(null);
   const [pending, setPending] = useState(null);
   const reduce = useReducedMotion();
+  const reqSeq = useRef(0);
 
-  async function load() {
-    setLoadError('');
+  // Debounced search: the user list is filtered on the server.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(query), 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  async function loadStats() {
     try {
-      await ensureMessagesSchema();
-      const [s, u, p] = await Promise.all([fetchAdminStats(), fetchAdminUsers(), fetchRecentPosts()]);
-      setStats(s);
-      setUsers(u);
-      setPosts(p);
+      setStats(await fetchAdminStats());
+    } catch (e) {
+      setLoadError(e.message);
+    }
+  }
+
+  async function loadUsers(term, offset = 0) {
+    const seq = ++reqSeq.current;
+    try {
+      const data = await fetchAdminUsers({ q: term, offset });
+      if (seq !== reqSeq.current) return;
+      setUsers((prev) => (offset && prev ? [...prev, ...data.users] : data.users));
+      setUsersMore(data.hasMore);
+    } catch (e) {
+      setLoadError(e.message);
+    }
+  }
+
+  async function loadPosts(before = null) {
+    try {
+      const data = await fetchRecentPosts({ before });
+      setPosts((prev) => (before && prev ? [...prev, ...data.posts] : data.posts));
+      setPostsMore(data.hasMore);
     } catch (e) {
       setLoadError(e.message);
     }
   }
 
   useEffect(() => {
-    load();
+    setLoadError('');
+    loadStats();
+    loadPosts();
   }, []);
+
+  useEffect(() => {
+    loadUsers(search, 0);
+  }, [search]);
 
   async function run(key, fn, success) {
     setActionError('');
@@ -113,7 +139,7 @@ export default function Admin({ viewer }) {
     try {
       await fn();
       if (success) setNotice(success);
-      await load();
+      await Promise.all([loadStats(), loadUsers(search, 0), loadPosts()]);
     } catch (e) {
       setActionError(e.message);
     } finally {
@@ -122,7 +148,9 @@ export default function Admin({ viewer }) {
   }
 
   function toggleBan(u) {
-    run(`ban-${u.id}`, () => setUserBanned(viewer.id, u.id, !u.banned), u.banned ? `${u.name} can log in again.` : `${u.name} is suspended.`);
+    const next = !u.banned;
+    if (next && !window.confirm(`Suspend ${u.name}? They lose access immediately.`)) return;
+    run(`ban-${u.id}`, () => setUserBanned(null, u.id, next), next ? `${u.name} is suspended.` : `${u.name} can log in again.`);
   }
 
   function removePost(p) {
@@ -137,9 +165,17 @@ export default function Admin({ viewer }) {
       <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Admin</h1>
 
       {loadError && (
-        <div role="alert" className="card mt-6 flex items-center justify-between gap-3 p-4">
+        <div role="alert" className="card mt-6 flex flex-wrap items-center justify-between gap-3 p-4">
           <p className="text-sm text-red-600">{loadError}</p>
-          <button onClick={load} className="focus-ring rounded-full px-3 py-1.5 text-sm text-primary hover:bg-primary/10">
+          <button
+            onClick={() => {
+              setLoadError('');
+              loadStats();
+              loadUsers(search, 0);
+              loadPosts();
+            }}
+            className="focus-ring rounded-full px-3 py-1.5 text-sm text-primary hover:bg-primary/10"
+          >
             Try again
           </button>
         </div>
@@ -167,7 +203,7 @@ export default function Admin({ viewer }) {
           <motion.p
             key="action-error"
             role="alert"
-            initial={{ opacity: 0, y: -4 }}
+            initial={reduce ? false : { opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
@@ -190,20 +226,32 @@ export default function Admin({ viewer }) {
         )}
       </AnimatePresence>
 
-      <h2 className="mt-8 text-sm font-semibold text-ink-muted">Users</h2>
-      {users?.length === 0 && <p className="mt-3 text-ink-faint">No accounts yet.</p>}
+      <div className="mt-8 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-ink-muted">Users</h2>
+        <label className="w-44">
+          <span className="sr-only">Search users by name</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search name"
+            className="w-full rounded-full border border-hairline bg-white px-3 py-1.5 text-sm text-ink outline-none focus:border-primary focus:shadow-focus"
+          />
+        </label>
+      </div>
+      {users?.length === 0 && <p className="mt-3 text-ink-faint">{search ? `No one matches “${search}”.` : 'No accounts yet.'}</p>}
       {users?.length > 0 && (
         <ul className="mt-3 space-y-3">
           {users.map((u) => {
             const granting = grantingId === u.id;
             return (
               <li key={u.id} className="card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-ink">
-                      {u.name}
-                      {u.isAdmin && <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">Admin</span>}
-                      {u.banned && <span className="ml-2 rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">Suspended</span>}
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-2 font-semibold text-ink">
+                      <span className="truncate">{u.name}</span>
+                      {u.isAdmin && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">Admin</span>}
+                      {u.banned && <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">Suspended</span>}
                     </p>
                     <p className="mt-0.5 text-xs text-ink-faint">
                       Joined {joined(u.created_at)} · {fmt(u.postCount)} {u.postCount === 1 ? 'post' : 'posts'} · {fmt(u.coins)} coins
@@ -242,12 +290,13 @@ export default function Admin({ viewer }) {
                     >
                       <GrantForm
                         user={u}
-                        adminId={viewer.id}
+                        onError={setActionError}
                         onDone={(msg) => {
                           setGrantingId(null);
                           setActionError('');
                           setNotice(msg);
-                          load();
+                          loadStats();
+                          loadUsers(search, 0);
                         }}
                       />
                     </motion.div>
@@ -257,6 +306,14 @@ export default function Admin({ viewer }) {
             );
           })}
         </ul>
+      )}
+      {usersMore && (
+        <button
+          onClick={() => loadUsers(search, users.length)}
+          className="focus-ring mt-4 w-full rounded-full border border-hairline bg-white py-2 text-sm font-medium text-ink-secondary hover:bg-black/5"
+        >
+          Load more users
+        </button>
       )}
 
       <h2 className="mt-8 text-sm font-semibold text-ink-muted">Recent posts</h2>
@@ -281,6 +338,14 @@ export default function Admin({ viewer }) {
             </li>
           ))}
         </ul>
+      )}
+      {postsMore && (
+        <button
+          onClick={() => loadPosts(posts[posts.length - 1].id)}
+          className="focus-ring mt-4 w-full rounded-full border border-hairline bg-white py-2 text-sm font-medium text-ink-secondary hover:bg-black/5"
+        >
+          Load older posts
+        </button>
       )}
     </div>
   );

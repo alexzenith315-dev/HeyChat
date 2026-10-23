@@ -7,6 +7,7 @@ import { timeAgo } from '../lib/time';
 const KIND = {
   gift_sent: 'Gift sent',
   gift_received: 'Gift received',
+  admin_grant: 'Owner grant',
 };
 
 export default function Wallet({ viewer }) {
