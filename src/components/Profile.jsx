@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { GridFour, Image as ImageIcon, FilmStrip, BookmarkSimple, ArrowLeft, MagnifyingGlass, LinkSimple, CalendarBlank, ShareFat, Gear } from '@phosphor-icons/react';
-import { fetchProfile, fetchFeed, toggleFollowUser, fetchSaved } from '../lib/db';
+import { fetchProfile, fetchFeed, toggleFollowUser, fetchSaved, unblockUser } from '../lib/db';
 import Post from './Post';
 import Avatar from './Avatar';
 import BlockReportMenu from './BlockReportMenu';
@@ -73,11 +73,19 @@ export default function Profile({ viewer }) {
 
   const load = useCallback(async () => {
     try {
-      const [p, feed] = await Promise.all([fetchProfile(id, viewer.id), fetchFeed(viewer.id, null, id)]);
+      const p = await fetchProfile(id, viewer.id);
       if (!p) {
         setError('That member could not be found.');
         return;
       }
+      if (p.blocked) {
+        // You blocked this person: no feed is requested, the page shows the blocked state.
+        setProfile(p);
+        setPosts([]);
+        setError('');
+        return;
+      }
+      const feed = await fetchFeed(viewer.id, null, id);
       setProfile(p);
       setPosts(feed.posts);
       setError('');
@@ -85,6 +93,19 @@ export default function Profile({ viewer }) {
       setError(e.message);
     }
   }, [id, viewer.id]);
+
+  async function unblockProfile() {
+    setBusy(true);
+    setError('');
+    try {
+      await unblockUser(id);
+      await load();
+    } catch (e) {
+      setError(e.message || 'Could not unblock that person.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     setProfile(null);
@@ -130,6 +151,30 @@ export default function Profile({ viewer }) {
       <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-6" aria-label="Loading profile">
         <div className="h-36 animate-pulse rounded-2xl bg-ink/[0.04]" />
         <div className="-mt-12 ml-4 size-24 animate-pulse rounded-full bg-ink/[0.06]" />
+      </div>
+    );
+  }
+
+  if (profile.blocked) {
+    return (
+      <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-6">
+        <button onClick={() => navigate(-1)} className="focus-ring mb-4 inline-flex items-center gap-1 rounded-full px-2 py-1 text-sm text-ink-secondary hover:bg-ink/5">
+          <ArrowLeft size={16} aria-hidden="true" /> Back
+        </button>
+        <section className="card flex flex-col items-center gap-3 p-6 text-center" aria-labelledby="blocked-profile-h">
+          <Avatar name={profile.name} src={profile.avatar} size="size-16" text="text-2xl" />
+          <h1 id="blocked-profile-h" className="font-display text-lg font-semibold text-ink">{profile.name}</h1>
+          <p className="text-sm text-ink-muted">You blocked this user. You won’t see their posts or messages.</p>
+          <button
+            type="button"
+            onClick={unblockProfile}
+            disabled={busy}
+            className="focus-ring mt-1 rounded-full border border-ink bg-ink px-5 py-1.5 text-sm font-bold text-canvas hover:opacity-90 disabled:opacity-50"
+          >
+            Unblock
+          </button>
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+        </section>
       </div>
     );
   }
@@ -196,7 +241,7 @@ export default function Profile({ viewer }) {
                 <BlockReportMenu
                   userId={profile.id}
                   userName={profile.name}
-                  blocked={false}
+                  blocked={!!profile.blocked}
                 />
                 <motion.button
                   whileTap={reduce ? undefined : { scale: 0.94 }}

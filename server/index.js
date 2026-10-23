@@ -308,6 +308,10 @@ app.get(
       [me(req), id],
     );
     if (!u) return res.status(404).json({ error: 'No such person.' });
+    // You blocked them: say so explicitly (no posts or counts) so the client can offer Unblock.
+    const iBlocked = await one('SELECT 1 AS x FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?', [me(req), id]);
+    if (iBlocked) return res.json({ id: u.id, name: u.name, avatar: u.avatar ?? null, blocked: true });
+    // They blocked you: keep the same 404 so the block isn't revealed.
     if (await isBlockedEitherWay(me(req), id)) return res.status(404).json({ error: 'No such person.' });
     res.json({
       id: u.id,

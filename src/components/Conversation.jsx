@@ -18,7 +18,7 @@ import BlockReportMenu from './BlockReportMenu';
 import ConversationInfo from './ConversationInfo';
 import { ActiveCall, IncomingCall } from './CallScreen';
 import { getIncomingCallApi, endCallApi } from '../lib/calls';
-import { readUploadDataUrl } from '../lib/db';
+import { readUploadDataUrl, fetchBlocks } from '../lib/db';
 import { onSocketEvent, sendSocketEvent, isLive, startSocket } from '../lib/socket';
 
 const POLL_MS = 3000;
@@ -61,6 +61,7 @@ export default function Conversation({ viewer }) {
   const { id } = useParams();
   const convId = Number(id);
   const [conv, setConv] = useState(null);
+  const [blockedIds, setBlockedIds] = useState([]);
   const [infoOpen, setInfoOpen] = useState(false);
   const [messages, setMessages] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -93,6 +94,16 @@ export default function Conversation({ viewer }) {
     await markConversationRead(convId, viewer.id).catch(() => {});
     return rows;
   }, [convId, viewer.id]);
+
+  useEffect(() => {
+    let alive = true;
+    fetchBlocks()
+      .then((rows) => alive && setBlockedIds(rows.map((r) => r.id)))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [viewer.id]);
 
   useEffect(() => {
     let alive = true;
@@ -424,7 +435,16 @@ export default function Conversation({ viewer }) {
         )}
         {conv && conv.kind === 'dm' && conv.memberList?.some((m) => m.id !== viewer.id) && (() => {
           const peer = conv.memberList.find((m) => m.id !== viewer.id);
-          return <BlockReportMenu userId={peer.id} userName={peer.name} blocked={false} />;
+          return (
+            <BlockReportMenu
+              userId={peer.id}
+              userName={peer.name}
+              blocked={blockedIds.includes(peer.id)}
+              onBlockChange={(nowBlocked) =>
+                setBlockedIds((ids) => (nowBlocked ? [...ids.filter((x) => x !== peer.id), peer.id] : ids.filter((x) => x !== peer.id)))
+              }
+            />
+          );
         })()}
         {conv && (
           <button
