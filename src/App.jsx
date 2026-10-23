@@ -16,6 +16,7 @@ import Settings from './components/Settings';
 import Wallet from './components/Wallet';
 import Creator from './components/Creator';
 import Admin from './components/Admin';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function Shell({ user, onLogout, onUserChanged }) {
   const navigate = useNavigate();
@@ -34,19 +35,19 @@ function Shell({ user, onLogout, onUserChanged }) {
     <div className="min-h-dvh">
       <main className="pb-20 pt-[env(safe-area-inset-top)]">
         <Routes>
-          <Route path="/" element={<Feed viewer={user} />} />
-          <Route path="/discover" element={<Discover viewer={user} />} />
-          <Route path="/wallet" element={<Wallet viewer={user} />} />
-          <Route path="/creator" element={<Creator viewer={user} />} />
-          <Route path="/notifications" element={<Notifications viewer={user} />} />
-          <Route path="/messages" element={<Messages viewer={user} />} />
-          <Route path="/messages/:id" element={<Conversation viewer={user} />} />
-          <Route path="/u/:id" element={<Profile viewer={user} />} />
-          <Route path="/u/:id/:kind" element={<FollowList viewer={user} />} />
-          <Route path="/settings" element={<Settings viewer={user} onLogout={onLogout} onUserChanged={onUserChanged} />} />
+          <Route path="/" element={<ErrorBoundary><Feed viewer={user} /></ErrorBoundary>} />
+          <Route path="/discover" element={<ErrorBoundary><Discover viewer={user} /></ErrorBoundary>} />
+          <Route path="/wallet" element={<ErrorBoundary><Wallet viewer={user} /></ErrorBoundary>} />
+          <Route path="/creator" element={<ErrorBoundary><Creator viewer={user} /></ErrorBoundary>} />
+          <Route path="/notifications" element={<ErrorBoundary><Notifications viewer={user} /></ErrorBoundary>} />
+          <Route path="/messages" element={<ErrorBoundary><Messages viewer={user} /></ErrorBoundary>} />
+          <Route path="/messages/:id" element={<ErrorBoundary><Conversation viewer={user} /></ErrorBoundary>} />
+          <Route path="/u/:id" element={<ErrorBoundary><Profile viewer={user} /></ErrorBoundary>} />
+          <Route path="/u/:id/:kind" element={<ErrorBoundary><FollowList viewer={user} /></ErrorBoundary>} />
+          <Route path="/settings" element={<ErrorBoundary><Settings viewer={user} onLogout={onLogout} onUserChanged={onUserChanged} /></ErrorBoundary>} />
           <Route path="/invites" element={<Navigate to="/settings" replace />} />
-          <Route path="/profile/edit" element={<EditProfile viewer={user} onSaved={onUserChanged} />} />
-          <Route path="/admin" element={user.isAdmin ? <Admin viewer={user} /> : <Navigate to="/" replace />} />
+          <Route path="/profile/edit" element={<ErrorBoundary><EditProfile viewer={user} onSaved={onUserChanged} /></ErrorBoundary>} />
+          <Route path="/admin" element={user.isAdmin ? <ErrorBoundary><Admin viewer={user} /></ErrorBoundary> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

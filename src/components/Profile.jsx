@@ -114,8 +114,8 @@ export default function Profile({ viewer }) {
     load();
   }, [load]);
 
-  const media = useMemo(() => (posts ?? []).filter((p) => p.image), [posts]);
-  const reels = useMemo(() => (posts ?? []).filter(isVideoPost), [posts]);
+  const media = useMemo(() => (posts ?? []).filter((p) => p?.image), [posts]);
+  const reels = useMemo(() => (posts ?? []).filter((p) => p && isVideoPost(p)), [posts]);
 
   async function toggleFollow() {
     if (!profile || busy) return;
@@ -239,8 +239,8 @@ export default function Profile({ viewer }) {
               ) : (
                 <>
                 <BlockReportMenu
-                  userId={profile.id}
-                  userName={profile.name}
+                  userId={profile.id ?? id}
+                  userName={profile.name ?? ''}
                   blocked={!!profile.blocked}
                 />
                 <motion.button
@@ -287,8 +287,8 @@ export default function Profile({ viewer }) {
 
           {/* Inline stats: bold numbers, muted labels, tappable */}
           <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
-            <Stat to={`/u/${id}/following`} value={profile.following} label="Following" />
-            <Stat to={`/u/${id}/followers`} value={profile.followers} label={profile.followers === 1 ? 'Follower' : 'Followers'} />
+            <Stat to={`/u/${id}/following`} value={profile.following ?? 0} label="Following" />
+            <Stat to={`/u/${id}/followers`} value={profile.followers ?? 0} label={profile.followers === 1 ? 'Follower' : 'Followers'} />
           </div>
         </div>
       </section>
@@ -332,7 +332,7 @@ export default function Profile({ viewer }) {
               <EmptyState icon={GridFour} title="No posts yet" hint={isSelf ? 'Share a thought or a photo and it will show up here.' : `${profile.name} hasn't posted anything yet.`} />
             )}
             <motion.div layout className="mt-4 space-y-3">
-              {posts.map((p) => (
+              {posts.filter(Boolean).map((p) => (
                 <Post key={p.id} post={p} viewer={viewer} onChanged={load} />
               ))}
             </motion.div>
