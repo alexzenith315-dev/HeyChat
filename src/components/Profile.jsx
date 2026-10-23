@@ -1,38 +1,49 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Link, useParams } from 'react-router-dom';
+import { GridFour, Image as ImageIcon, FilmStrip, BookmarkSimple } from '@phosphor-icons/react';
 import { fetchProfile, fetchFeed, toggleFollowUser, fetchSaved } from '../lib/db';
 import Post from './Post';
 import Avatar from './Avatar';
 import { isVideoPost, ReelTile } from './Feed';
 
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
+
 const PROFILE_TABS = [
-  { id: 'posts', label: 'Posts' },
-  { id: 'media', label: 'Media' },
-  { id: 'reels', label: 'Reels' },
+  { id: 'posts', label: 'Posts', icon: GridFour },
+  { id: 'media', label: 'Media', icon: ImageIcon },
+  { id: 'reels', label: 'Reels', icon: FilmStrip },
 ];
 // Saved is private: only shown on your own profile.
-const SELF_TABS = [...PROFILE_TABS, { id: 'saved', label: 'Saved' }];
+const SELF_TABS = [...PROFILE_TABS, { id: 'saved', label: 'Saved', icon: BookmarkSimple }];
 
-// A stat is a real link to the follower / following list. Posts is informational.
+// Inline stat: "12 Posts" / "3 Followers". Followers and Following link to the real lists.
 function Stat({ to, value, label }) {
   const inner = (
     <>
-      <span className="font-display text-lg font-bold tabular-nums text-ink">{value}</span>
-      <span className="text-xs text-ink-muted">{label}</span>
+      <span className="font-bold tabular-nums text-ink">{value}</span>
+      <span className="text-ink-muted">{label}</span>
     </>
   );
-  if (!to) return <div className="flex min-w-0 flex-1 flex-col items-center py-3">{inner}</div>;
+  const base = 'inline-flex items-baseline gap-1 rounded-md text-[15px]';
+  if (!to) return <span className={base}>{inner}</span>;
   return (
-    <Link to={to} className="focus-ring flex min-w-0 flex-1 flex-col items-center rounded-lg py-3 transition-colors hover:bg-ink/5">
+    <Link to={to} className={`focus-ring ${base} transition-colors hover:text-ink`}>
       {inner}
     </Link>
   );
 }
 
-function EmptyNote({ children }) {
-  return <p className="mt-10 text-center text-ink-muted">{children}</p>;
+function EmptyState({ icon: Icon, title, hint }) {
+  return (
+    <div className="flex flex-col items-center px-6 py-14 text-center">
+      <div className="grid size-16 place-items-center rounded-full border-2 border-ink-faint text-ink-faint">
+        <Icon size={28} weight="regular" aria-hidden="true" />
+      </div>
+      <p className="mt-4 font-semibold text-ink">{title}</p>
+      {hint && <p className="mt-1 max-w-xs text-sm text-ink-muted">{hint}</p>}
+    </div>
+  );
 }
 
 export default function Profile({ viewer }) {
@@ -45,6 +56,7 @@ export default function Profile({ viewer }) {
   const [busy, setBusy] = useState(false);
   const reduce = useReducedMotion();
   const isSelf = viewer.id === id;
+  const tabs = isSelf ? SELF_TABS : PROFILE_TABS;
 
   useEffect(() => {
     if (tab !== 'saved' || !isSelf) return;
@@ -102,7 +114,7 @@ export default function Profile({ viewer }) {
 
   if (error && !profile) {
     return (
-      <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
+      <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-6">
         <p role="alert" className="text-sm text-danger">{error}</p>
         <button onClick={load} className="focus-ring mt-4 rounded-full border border-hairline bg-canvas px-5 py-2 text-sm font-medium text-ink-secondary">
           Try again
@@ -113,8 +125,9 @@ export default function Profile({ viewer }) {
 
   if (!profile) {
     return (
-      <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8" aria-label="Loading profile">
-        <div className="card h-56 animate-pulse bg-ink/[0.03]" />
+      <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-6" aria-label="Loading profile">
+        <div className="h-36 animate-pulse rounded-2xl bg-ink/[0.04]" />
+        <div className="-mt-12 ml-4 size-24 animate-pulse rounded-full bg-ink/[0.06]" />
       </div>
     );
   }
@@ -123,51 +136,58 @@ export default function Profile({ viewer }) {
 
   return (
     <div className="mx-auto w-full max-w-xl pb-24 sm:pt-6">
-      <section className="overflow-hidden bg-canvas sm:rounded-2xl sm:border sm:border-hairline">
-        {/* Cover: solid theme colour, the avatar overlaps its bottom edge only */}
-        <div className="relative h-32 bg-accent-sky/25 sm:h-40" aria-hidden="true" />
+      <section className="bg-canvas sm:overflow-hidden sm:rounded-2xl sm:border sm:border-hairline">
+        {/* Cover: flat accent tint (design contract: no gradients) */}
+        <div aria-hidden="true" className="h-36 bg-accent-sky/35 sm:h-44" />
 
-        <div className="px-5 pb-5">
+        <div className="px-4 pb-5 sm:px-6">
+          {/* Avatar overlaps the cover by half its height; the action button sits on the same baseline */}
           <div className="-mt-14 flex items-end justify-between gap-3">
-            <div className="rounded-full bg-canvas p-1.5 ring-1 ring-hairline">
+            <div className="rounded-full bg-canvas p-1">
               <Avatar name={profile.name} src={profile.avatar} size="size-28" text="text-4xl" />
             </div>
-            {isSelf ? (
-              <Link
-                to="/profile/edit"
-                className="focus-ring mb-1 rounded-full border border-hairline bg-canvas px-5 py-2 text-sm font-semibold text-ink-secondary transition-colors hover:bg-ink/5"
-              >
-                Edit profile
-              </Link>
-            ) : (
-              <motion.button
-                whileTap={reduce ? undefined : { scale: 0.92 }}
-                transition={spring}
-                onClick={toggleFollow}
-                disabled={busy}
-                aria-pressed={profile.followed}
-                className={`focus-ring mb-1 rounded-full border px-6 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
-                  profile.followed ? 'border-hairline bg-canvas text-ink-secondary' : 'border-primary bg-primary text-white'
-                }`}
-              >
-                {profile.followed ? 'Following' : 'Follow'}
-              </motion.button>
-            )}
+            <div className="mb-1 flex items-center gap-2">
+              {isSelf ? (
+                <Link
+                  to="/profile/edit"
+                  className="focus-ring rounded-full border border-hairline bg-canvas px-5 py-2 text-sm font-semibold text-ink transition-colors hover:bg-ink/5"
+                >
+                  Edit profile
+                </Link>
+              ) : (
+                <motion.button
+                  whileTap={reduce ? undefined : { scale: 0.94 }}
+                  transition={spring}
+                  onClick={toggleFollow}
+                  disabled={busy}
+                  aria-pressed={profile.followed}
+                  className={`focus-ring rounded-full border px-6 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
+                    profile.followed
+                      ? 'border-hairline bg-canvas text-ink hover:bg-ink/5'
+                      : 'border-primary bg-primary text-white hover:opacity-90'
+                  }`}
+                >
+                  {profile.followed ? 'Following' : 'Follow'}
+                </motion.button>
+              )}
+            </div>
           </div>
 
-          <h1 className="mt-3 truncate font-display text-2xl font-bold tracking-tight text-ink">{profile.name}</h1>
-          <p className="text-sm text-ink-muted">{handle}</p>
+          <div className="mt-3 min-w-0">
+            <h1 className="truncate text-2xl font-bold tracking-tight text-ink">{profile.name}</h1>
+            <p className="truncate text-[15px] text-ink-muted">{handle}</p>
+          </div>
 
           {profile.bio ? (
-            <p className="mt-3 whitespace-pre-wrap break-words text-ink-secondary">{profile.bio}</p>
-          ) : (
-            <p className="mt-3 text-sm text-ink-faint">{isSelf ? 'Add a bio from Edit profile.' : 'No bio yet.'}</p>
-          )}
+            <p className="mt-3 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-ink-secondary">{profile.bio}</p>
+          ) : isSelf ? (
+            <p className="mt-3 text-[15px] text-ink-faint">Add a bio from Edit profile.</p>
+          ) : null}
 
-          {/* Stats: Followers and Following open the real user lists */}
-          <div className="mt-4 flex divide-x divide-hairline rounded-xl border border-hairline bg-canvas-soft">
+          {/* Inline stat row: "12 Posts · 3 Followers · 5 Following" */}
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
             <Stat value={posts ? posts.length : '–'} label="Posts" />
-            <Stat to={`/u/${id}/followers`} value={profile.followers} label="Followers" />
+            <Stat to={`/u/${id}/followers`} value={profile.followers} label={profile.followers === 1 ? 'Follower' : 'Followers'} />
             <Stat to={`/u/${id}/following`} value={profile.following} label="Following" />
           </div>
         </div>
@@ -175,20 +195,26 @@ export default function Profile({ viewer }) {
 
       {error && <p role="alert" className="mx-4 mt-4 text-sm text-danger">{error}</p>}
 
-      <div role="tablist" aria-label="Profile sections" className="mt-4 flex border-b border-hairline px-2">
-        {(viewer.id === id ? SELF_TABS : PROFILE_TABS).map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
-            className={`focus-ring flex-1 border-b-2 py-3 text-sm font-semibold transition-colors ${
-              tab === t.id ? 'border-primary text-ink' : 'border-transparent text-ink-faint hover:text-ink-secondary'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div role="tablist" aria-label="Profile sections" className="mt-2 grid border-b border-hairline" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
+        {tabs.map((t) => {
+          const Icon = t.icon;
+          const active = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={active}
+              aria-label={t.label}
+              onClick={() => setTab(t.id)}
+              className={`focus-ring relative flex items-center justify-center py-3 transition-colors ${
+                active ? 'text-ink' : 'text-ink-faint hover:text-ink-secondary'
+              }`}
+            >
+              <Icon size={22} weight={active ? 'fill' : 'regular'} aria-hidden="true" />
+              {active && <span className="absolute inset-x-6 bottom-0 h-0.5 rounded-full bg-ink" aria-hidden="true" />}
+            </button>
+          );
+        })}
       </div>
 
       <div className="px-4">
@@ -202,7 +228,9 @@ export default function Profile({ viewer }) {
 
         {posts && tab === 'posts' && (
           <>
-            {posts.length === 0 && <EmptyNote>No posts yet.</EmptyNote>}
+            {posts.length === 0 && (
+              <EmptyState icon={GridFour} title="No posts yet" hint={isSelf ? 'Share a thought or a photo and it will show up here.' : `${profile.name} hasn't posted anything yet.`} />
+            )}
             <motion.div layout className="mt-4 space-y-3">
               {posts.map((p) => (
                 <Post key={p.id} post={p} viewer={viewer} onChanged={load} />
@@ -211,24 +239,23 @@ export default function Profile({ viewer }) {
           </>
         )}
 
-        {posts && tab === 'media' && (
-          <>
-            {media.length === 0 ? (
-              <EmptyNote>No photos yet.</EmptyNote>
-            ) : (
-              <div className="mt-4 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
-                {media.map((p) => (
-                  <img key={p.id} src={p.image} alt={p.body ? p.body.slice(0, 80) : `Photo by ${profile.name}`} loading="lazy" className="aspect-square w-full object-cover" />
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        {posts && tab === 'media' &&
+          (media.length === 0 ? (
+            <EmptyState icon={ImageIcon} title="No photos yet" />
+          ) : (
+            <div className="mt-1 grid grid-cols-3 gap-0.5">
+              {media.map((p) => (
+                <img key={p.id} src={p.image} alt={p.body ? p.body.slice(0, 80) : `Photo by ${profile.name}`} loading="lazy" className="aspect-square w-full object-cover" />
+              ))}
+            </div>
+          ))}
 
-        {tab === 'saved' && (
+        {tab === 'saved' && isSelf && (
           <>
-            {saved === null && <p className="mt-4 text-sm text-ink-faint">Loading…</p>}
-            {saved && saved.length === 0 && <EmptyNote>Nothing saved yet. Tap the bookmark on a post or reel to keep it here.</EmptyNote>}
+            {saved === null && <p className="mt-6 text-center text-sm text-ink-faint">Loading…</p>}
+            {saved && saved.length === 0 && (
+              <EmptyState icon={BookmarkSimple} title="Nothing saved yet" hint="Tap the bookmark on a post or reel to keep it here." />
+            )}
             {saved && saved.length > 0 && (
               <motion.div layout className="mt-4 space-y-3">
                 {saved.map((p) => (
@@ -239,19 +266,16 @@ export default function Profile({ viewer }) {
           </>
         )}
 
-        {posts && tab === 'reels' && (
-          <>
-            {reels.length === 0 ? (
-              <EmptyNote>No reels yet.</EmptyNote>
-            ) : (
-              <div className="mt-4 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
-                {reels.map((p) => (
-                  <ReelTile key={p.id} p={p} />
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        {posts && tab === 'reels' &&
+          (reels.length === 0 ? (
+            <EmptyState icon={FilmStrip} title="No reels yet" />
+          ) : (
+            <div className="mt-1 grid grid-cols-3 gap-0.5">
+              {reels.map((p) => (
+                <ReelTile key={p.id} p={p} />
+              ))}
+            </div>
+          ))}
       </div>
     </div>
   );
