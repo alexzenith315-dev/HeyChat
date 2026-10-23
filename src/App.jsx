@@ -157,7 +157,7 @@ function Shell({ user, onLogout }) {
       <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-xl items-center justify-around px-2 py-1.5">
           {navItems.map((it) => {
-            const active = it.match(pathname, search);
+            const active = it.match ? it.match(pathname, search) : false;
             const Icon = it.icon;
             if (it.center) {
               return (
