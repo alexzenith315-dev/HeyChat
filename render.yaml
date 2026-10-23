@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: heychat
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci && npm run build && npm ci --prefix server
+    startCommand: npm start --prefix server
+    healthCheckPath: /api/setup
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
