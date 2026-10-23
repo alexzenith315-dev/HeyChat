@@ -17,7 +17,6 @@ model User {
   bio              String?
   avatar           String?
   coins            Int       @default(0)
-  lastDailyBonus   String?   @map("last_daily_bonus")
   createdAt        BigInt    @map("created_at")
 
   posts            Post[]

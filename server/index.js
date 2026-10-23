@@ -547,29 +547,8 @@ const DAY = (d = new Date()) => d.toLocaleDateString('en-CA');
 app.get(
   '/api/wallet',
   wrap(async (req, res) => {
-    const u = await one('SELECT coins, last_daily_bonus FROM users WHERE id = ?', [me(req)]);
-    res.json({ coins: Number(u?.coins ?? 0), lastDailyBonus: u?.last_daily_bonus ?? null, today: DAY() });
-  }),
-);
-
-app.post(
-  '/api/wallet/daily-bonus',
-  wrap(async (req, res) => {
-    const today = DAY();
-    const bonus = 50;
-    const updated = await exec(
-      `UPDATE users SET coins = COALESCE(coins, 0) + ?, last_daily_bonus = ?
-       WHERE id = ? AND (last_daily_bonus IS NULL OR last_daily_bonus != ?)`,
-      [bonus, today, me(req), today],
-    );
-    if (!updated.rowCount) return res.json({ claimed: false });
-    await exec('INSERT INTO transactions (user_id, kind, amount, created_at) VALUES (?, ?, ?, ?)', [
-      me(req),
-      'daily_bonus',
-      bonus,
-      Date.now(),
-    ]);
-    res.json({ claimed: true });
+    const u = await one('SELECT coins FROM users WHERE id = ?', [me(req)]);
+    res.json({ coins: Number(u?.coins ?? 0) });
   }),
 );
 

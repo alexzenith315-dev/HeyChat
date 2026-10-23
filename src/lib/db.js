@@ -10,7 +10,6 @@ export const MAX_POST_IMAGE_BYTES = 200 * 1024;
 export const MAX_BIO = 160;
 export const MAX_AVATAR_BYTES = 60 * 1024;
 export const MAX_GRANT = 10000;
-export const DAILY_BONUS = 50;
 export const CREATOR_DAYS = 14;
 export const GIFT_TIERS = [
   { id: 'social', label: 'Social' },
@@ -196,11 +195,6 @@ export async function updateAvatar(userId, dataUrl) {
 
 export function fetchWallet() {
   return api('GET', '/api/wallet');
-}
-
-export async function claimDailyBonus() {
-  const data = await api('POST', '/api/wallet/daily-bonus');
-  return data.claimed;
 }
 
 export function fetchTransactions() {

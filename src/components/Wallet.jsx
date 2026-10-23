@@ -5,7 +5,6 @@ import { fetchWallet, fetchTransactions } from '../lib/db';
 import { timeAgo } from '../lib/time';
 
 const KIND = {
-  daily_bonus: 'Daily bonus',
   gift_sent: 'Gift sent',
   gift_received: 'Gift received',
 };

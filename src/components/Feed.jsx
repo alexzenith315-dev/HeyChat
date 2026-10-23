@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { X, ImageSquare } from '@phosphor-icons/react';
-import { api, createPost, fetchFeed, fetchWallet, claimDailyBonus, MAX_POST_IMAGE_BYTES } from '../lib/db';
+import { api, createPost, fetchFeed, MAX_POST_IMAGE_BYTES } from '../lib/db';
 import Post from './Post';
 import Avatar from './Avatar';
 
@@ -116,8 +116,6 @@ export default function Feed({ viewer, onCoinsChanged }) {
     if (tab === 'latest') return [...posts].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return posts;
   }, [posts, tab, viewer.id]);
-  const [bonusClaimed, setBonusClaimed] = useState(null);
-  const [claiming, setClaiming] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
@@ -142,24 +140,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
 
   useEffect(() => {
     load();
-    fetchWallet(viewer.id)
-      .then((w) => setBonusClaimed(w.lastDailyBonus === w.today))
-      .catch(() => setBonusClaimed(false));
   }, [load, viewer.id]);
-
-  async function claimBonus() {
-    setClaiming(true);
-    setError('');
-    try {
-      const granted = await claimDailyBonus(viewer.id);
-      setBonusClaimed(true);
-      if (granted) onCoinsChanged?.();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setClaiming(false);
-    }
-  }
 
   async function more() {
     if (!posts?.length) return;
@@ -221,17 +202,6 @@ export default function Feed({ viewer, onCoinsChanged }) {
             {t.label}
           </button>
         ))}
-      </div>
-
-      <div className="mt-4 flex justify-end">
-        <button
-          type="button"
-          onClick={claimBonus}
-          disabled={bonusClaimed !== false || claiming}
-          className="focus-ring rounded-full border border-hairline bg-white px-4 py-1.5 text-sm font-medium text-ink-secondary transition active:scale-95 disabled:opacity-50"
-        >
-          {bonusClaimed ? 'Bonus claimed today' : claiming ? 'Claiming…' : 'Daily bonus, +50 coins'}
-        </button>
       </div>
 
       <form ref={composerRef} onSubmit={submit} className="card mt-3 p-4">
