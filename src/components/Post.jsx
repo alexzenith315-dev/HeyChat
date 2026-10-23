@@ -174,6 +174,16 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
       {post.image && (
         <img src={post.image} alt="" loading="lazy" className="mt-3 max-h-96 w-full rounded-xl object-cover" />
       )}
+      {post.video && /^data:video\/(mp4|webm);/.test(post.video) && (
+        <video
+          src={post.video}
+          controls
+          playsInline
+          preload="metadata"
+          aria-label={post.body ? post.body.slice(0, 80) : 'Video'}
+          className="mt-3 max-h-96 w-full rounded-xl bg-black"
+        />
+      )}
 
       <div className="mt-3 flex items-center gap-1 border-t border-hairline pt-2">
         {(() => {

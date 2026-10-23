@@ -138,7 +138,9 @@ export default function Profile({ viewer }) {
     <div className="mx-auto w-full max-w-xl pb-24 sm:pt-6">
       <section className="bg-canvas sm:overflow-hidden sm:rounded-2xl sm:border sm:border-hairline">
         {/* Cover: flat accent tint (design contract: no gradients) */}
-        <div aria-hidden="true" className="h-36 bg-accent-sky/35 sm:h-44" />
+        <div aria-hidden="true" className="relative h-36 overflow-hidden bg-accent-sky/35 sm:h-44">
+          {profile.cover && <img src={profile.cover} alt="" className="absolute inset-0 size-full object-cover" />}
+        </div>
 
         <div className="px-4 pb-5 sm:px-6">
           {/* Avatar overlaps the cover by half its height; the action button sits on the same baseline */}
