@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
-import { Bell, Gear, ChatCircle, Coins, ChartBar, ShieldCheck } from '@phosphor-icons/react';
+import { Bell, Gear, ChatCircle, Coins, ChartBar, ShieldCheck, House, MagnifyingGlass, Plus, Play, UserCircle } from '@phosphor-icons/react';
+import Discover from './components/Discover';
 import { ensureSchema, getUserById, fetchUnreadCount, fetchWallet, api, getToken, setToken } from './lib/db';
 import { ensureMessagesSchema, totalUnread } from './lib/messages';
 import Auth from './components/Auth';
@@ -20,7 +21,7 @@ const spring = { type: 'spring', stiffness: 420, damping: 34 };
 
 function Shell({ user, onLogout }) {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const reduce = useReducedMotion();
   const [unread, setUnread] = useState(0);
   const [coins, setCoins] = useState(null);
@@ -43,10 +44,12 @@ function Shell({ user, onLogout }) {
       .then((w) => setCoins(w.coins))
       .catch(() => {});
   }
-  const tabs = [
-    { to: '/', label: 'Feed' },
-    { to: '/messages', label: 'Messages' },
-    ...(user.isAdmin ? [{ to: '/invites', label: 'Invites' }] : []),
+  const navItems = [
+    { label: 'Home', to: '/', icon: House, match: (p, s) => p === '/' && !new URLSearchParams(s).get('tab') },
+    { label: 'Discover', to: '/discover', icon: MagnifyingGlass, match: (p) => p.startsWith('/discover') },
+    { label: 'Create', center: true },
+    { label: 'Reels', to: '/?tab=reels', icon: Play, match: (p, s) => p === '/' && new URLSearchParams(s).get('tab') === 'reels' },
+    { label: 'Profile', to: `/u/${user.id}`, icon: UserCircle, match: (p) => p === `/u/${user.id}` },
   ];
 
   function logout() {
@@ -88,6 +91,22 @@ function Shell({ user, onLogout }) {
                 </motion.span>
               )}
             </Link>
+            <Link
+              to="/messages"
+              aria-label="Messages"
+              className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+            >
+              <ChatCircle size={20} aria-hidden="true" />
+            </Link>
+            {user.isAdmin && (
+              <Link
+                to="/invites"
+                aria-label="Invites"
+                className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-black/5"
+              >
+                <ShieldCheck size={20} aria-hidden="true" />
+              </Link>
+            )}
             {user.isAdmin && (
               <Link
                 to="/admin"
@@ -121,6 +140,7 @@ function Shell({ user, onLogout }) {
       <main>
         <Routes>
           <Route path="/" element={<Feed viewer={user} onCoinsChanged={refreshCoins} />} />
+          <Route path="/discover" element={<Discover viewer={user} />} />
           <Route path="/wallet" element={<Wallet viewer={user} />} />
           <Route path="/creator" element={<Creator viewer={user} />} />
           <Route path="/notifications" element={<Notifications viewer={user} onRead={() => setUnread(0)} />} />
@@ -134,24 +154,37 @@ function Shell({ user, onLogout }) {
         </Routes>
       </main>
 
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-4 z-30 flex justify-center px-4">
-        <div className="relative flex rounded-full border border-hairline bg-white/90 p-1 shadow-soft backdrop-blur-xl">
-          {tabs.map((t) => (
-            <NavLink key={t.to} to={t.to} end={t.to === '/'} className="focus-ring relative rounded-full px-5 py-2 text-sm font-medium">
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <motion.span
-                      layoutId="nav-pill"
-                      transition={reduce ? { duration: 0 } : spring}
-                      className="absolute inset-0 rounded-full bg-ink"
-                    />
-                  )}
-                  <span className={`relative ${isActive ? 'text-white' : 'text-ink-secondary'}`}>{t.label}</span>
-                </>
-              )}
-            </NavLink>
-          ))}
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
+        <div className="mx-auto flex max-w-xl items-center justify-around px-2 py-1.5">
+          {navItems.map((it) => {
+            const active = it.match(pathname, search);
+            const Icon = it.icon;
+            if (it.center) {
+              return (
+                <button
+                  key="create"
+                  type="button"
+                  onClick={() => (pathname === '/' ? window.dispatchEvent(new Event('hc:compose')) : navigate('/?compose=1'))}
+                  aria-label="Create post"
+                  className="focus-ring -mt-5 grid size-12 place-items-center rounded-full bg-primary text-white shadow-soft active:scale-95"
+                >
+                  <Plus size={24} weight="bold" aria-hidden="true" />
+                </button>
+              );
+            }
+            return (
+              <Link
+                key={it.label}
+                to={it.to}
+                aria-label={it.label}
+                aria-current={active ? 'page' : undefined}
+                className={`focus-ring flex min-w-14 flex-col items-center gap-0.5 rounded-xl px-2 py-1 text-[11px] font-medium ${active ? 'text-ink' : 'text-ink-faint'}`}
+              >
+                <Icon size={22} weight={active ? 'fill' : 'regular'} aria-hidden="true" />
+                <span>{it.label}</span>
+              </Link>
+            );
+          })}
         </div>
       </nav>
     </div>

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { X, ImageSquare } from '@phosphor-icons/react';
-import { createPost, fetchFeed, fetchWallet, claimDailyBonus, MAX_POST_IMAGE_BYTES } from '../lib/db';
+import { api, createPost, fetchFeed, fetchWallet, claimDailyBonus, MAX_POST_IMAGE_BYTES } from '../lib/db';
 import Post from './Post';
+import Avatar from './Avatar';
 
 const MAX = 280;
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
@@ -35,8 +37,85 @@ function toPostImageDataUrl(file) {
   });
 }
 
+const TABS = [
+  { id: 'foryou', label: 'For you' },
+  { id: 'following', label: 'Following' },
+  { id: 'latest', label: 'Latest' },
+  { id: 'reels', label: 'Reels' },
+];
+
+function StoriesRow({ viewer }) {
+  const [people, setPeople] = useState([]);
+  useEffect(() => {
+    api('GET', '/api/users')
+      .then(setPeople)
+      .catch(() => {});
+  }, []);
+  return (
+    <div className="-mx-4 overflow-x-auto px-4 pb-1" aria-label="Crew">
+      <ul className="flex gap-3">
+        <li>
+          <Link to={`/u/${viewer.id}`} className="focus-ring flex w-16 flex-col items-center gap-1">
+            <span className="rounded-full bg-primary/15 p-0.5">
+              <Avatar name={viewer.name} size="size-14" text="text-lg" />
+            </span>
+            <span className="w-full truncate text-center text-xs text-ink-muted">You</span>
+          </Link>
+        </li>
+        {people.map((u) => (
+          <li key={u.id}>
+            <Link to={`/u/${u.id}`} className="focus-ring flex w-16 flex-col items-center gap-1">
+              <span className="rounded-full bg-gradient-to-tr from-primary to-accent-sky p-0.5">
+                <span className="block rounded-full bg-canvas p-0.5">
+                  <Avatar name={u.name} src={u.avatar} size="size-12" text="text-base" />
+                </span>
+              </span>
+              <span className="w-full truncate text-center text-xs text-ink-secondary">{u.name}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ReelsGrid({ posts }) {
+  const withImages = (posts ?? []).filter((p) => p.image);
+  if (posts === null) return <p className="mt-6 text-sm text-ink-faint">Loading…</p>;
+  if (withImages.length === 0) {
+    return <p className="mt-10 text-center text-ink-muted">No pictures yet. Post one and it shows up here.</p>;
+  }
+  return (
+    <div className="mt-6 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
+      {withImages.map((p) => (
+        <img key={p.id} src={p.image} alt={p.body ? p.body.slice(0, 80) : `Picture by ${p.author}`} loading="lazy" className="aspect-[3/4] w-full object-cover" />
+      ))}
+    </div>
+  );
+}
+
 export default function Feed({ viewer, onCoinsChanged }) {
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(searchParams.get('tab') === 'reels' ? 'reels' : 'foryou');
+  const composerRef = useRef(null);
   const [posts, setPosts] = useState(null);
+
+  useEffect(() => {
+    const focusComposer = () => {
+      composerRef.current?.querySelector('textarea')?.focus();
+      composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    window.addEventListener('hc:compose', focusComposer);
+    if (searchParams.get('compose')) focusComposer();
+    return () => window.removeEventListener('hc:compose', focusComposer);
+  }, [searchParams]);
+
+  const visible = useMemo(() => {
+    if (!posts) return posts;
+    if (tab === 'following') return posts.filter((p) => p.followed || p.user_id === viewer.id);
+    if (tab === 'latest') return [...posts].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return posts;
+  }, [posts, tab, viewer.id]);
   const [bonusClaimed, setBonusClaimed] = useState(null);
   const [claiming, setClaiming] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -126,7 +205,25 @@ export default function Feed({ viewer, onCoinsChanged }) {
 
   return (
     <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
-      <div className="mb-3 flex justify-end">
+      <StoriesRow viewer={viewer} />
+
+      <div role="tablist" aria-label="Feed" className="mt-4 flex gap-1 overflow-x-auto border-b border-hairline">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`focus-ring -mb-px whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors ${
+              tab === t.id ? 'border-primary text-ink' : 'border-transparent text-ink-faint hover:text-ink-secondary'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 flex justify-end">
         <button
           type="button"
           onClick={claimBonus}
@@ -137,7 +234,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
         </button>
       </div>
 
-      <form onSubmit={submit} className="card p-4">
+      <form ref={composerRef} onSubmit={submit} className="card mt-3 p-4">
         <label htmlFor="composer" className="sr-only">What’s happening?</label>
         <textarea
           id="composer"
@@ -217,13 +314,20 @@ export default function Feed({ viewer, onCoinsChanged }) {
         </motion.div>
       )}
 
-      <motion.div layout className="mt-6 space-y-3">
-        <AnimatePresence initial={false}>
-          {posts?.map((p) => (
-            <Post key={p.id} post={p} viewer={viewer} onChanged={load} onCoinsChanged={onCoinsChanged} />
-          ))}
-        </AnimatePresence>
-      </motion.div>
+      {tab === 'reels' ? (
+        <ReelsGrid posts={visible} />
+      ) : (
+        <motion.div layout className="mt-6 space-y-3">
+          <AnimatePresence initial={false}>
+            {visible?.map((p) => (
+              <Post key={p.id} post={p} viewer={viewer} onChanged={load} onCoinsChanged={onCoinsChanged} />
+            ))}
+          </AnimatePresence>
+        </motion.div>
+      )}
+      {tab === 'following' && posts && visible.length === 0 && (
+        <p className="mt-10 text-center text-ink-muted">Follow someone to see their posts here.</p>
+      )}
 
       {hasMore && (
         <div className="mt-6 flex justify-center">

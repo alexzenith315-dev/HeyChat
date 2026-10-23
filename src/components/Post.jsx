@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Heart, Gift } from '@phosphor-icons/react';
+import { Heart, Gift, ChatCircle, ShareNetwork } from '@phosphor-icons/react';
 import { EMOJIS, toggleLike, toggleReaction, addComment, deletePost, deleteComment, followUser, unfollowUser } from '../lib/db';
 import { timeAgo } from '../lib/time';
 import Avatar from './Avatar';
@@ -17,6 +17,19 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
   const [floats, setFloats] = useState([]);
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  async function share() {
+    const url = `${window.location.origin}/?post=${post.id}`;
+    try {
+      if (navigator.share) await navigator.share({ title: `${post.author} on Crew`, url });
+      else await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* share cancelled */
+    }
+  }
   const reduce = useReducedMotion();
   const canDelete = viewer.id === post.user_id || viewer.isAdmin;
 
@@ -115,7 +128,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
             )}
           </div>
           <time className="text-xs text-ink-faint" dateTime={new Date(post.created_at).toISOString()}>
-            {timeAgo(post.created_at)}
+            @{post.author.toLowerCase().replace(/\s+/g, '')} · {timeAgo(post.created_at)}
           </time>
         </div>
         {canDelete && (
@@ -136,7 +149,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
         <img src={post.image} alt="" loading="lazy" className="mt-3 max-h-96 w-full rounded-xl object-cover" />
       )}
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+      <div className="mt-3 flex items-center gap-1 border-t border-hairline pt-2">
         {(() => {
           const likes = post.reactions.like;
           return (
@@ -145,17 +158,48 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
               onClick={like}
               aria-pressed={!!likes?.mine}
               aria-label={`Like, ${likes?.count ?? 0} so far`}
-              className={`focus-ring inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors ${
-                likes?.mine ? 'border-primary bg-primary/10 text-primary' : 'border-hairline bg-white text-ink-secondary'
+              className={`focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm transition-colors hover:bg-black/5 ${
+                likes?.mine ? 'text-primary' : 'text-ink-secondary'
               }`}
             >
-              <Heart size={16} weight={likes?.mine ? 'fill' : 'regular'} aria-hidden="true" />
+              <Heart size={20} weight={likes?.mine ? 'fill' : 'regular'} aria-hidden="true" />
               <motion.span key={likes?.count ?? 0} initial={reduce ? false : { y: -6, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={spring} className="tabular-nums">
                 {likes?.count ?? 0}
               </motion.span>
             </motion.button>
           );
         })()}
+        <button
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-label={`Comments, ${post.comments.length} so far`}
+          className="focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm text-ink-secondary hover:bg-black/5"
+        >
+          <ChatCircle size={20} aria-hidden="true" />
+          <span className="tabular-nums">{post.comments.length}</span>
+        </button>
+        <button
+          onClick={share}
+          aria-label="Share post"
+          className="focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm text-ink-secondary hover:bg-black/5"
+        >
+          <ShareNetwork size={20} aria-hidden="true" />
+          <span className="text-xs">{copied ? 'Copied' : ''}</span>
+        </button>
+        {post.user_id !== viewer.id && (
+          <motion.button
+            whileTap={reduce ? undefined : { scale: 0.86 }}
+            onClick={() => setGiftOpen(true)}
+            aria-label={`Send a gift to ${post.author}`}
+            className="focus-ring ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm text-ink-secondary hover:bg-black/5"
+          >
+            <Gift size={20} aria-hidden="true" />
+            <span className="text-xs">Gift</span>
+          </motion.button>
+        )}
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         {EMOJIS.map((emoji) => {
           const r = post.reactions[emoji];
           return (
@@ -176,24 +220,6 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
             </motion.button>
           );
         })}
-        {post.user_id !== viewer.id && (
-          <motion.button
-            whileTap={reduce ? undefined : { scale: 0.86 }}
-            onClick={() => setGiftOpen(true)}
-            aria-label={`Send a gift to ${post.author}`}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-hairline bg-white px-3 py-1 text-sm text-ink-secondary"
-          >
-            <Gift size={16} aria-hidden="true" />
-            Gift
-          </motion.button>
-        )}
-        <button
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          className="focus-ring ml-auto rounded-full px-3 py-1 text-sm text-ink-muted hover:bg-black/5"
-        >
-          {post.comments.length ? `${post.comments.length} comment${post.comments.length > 1 ? 's' : ''}` : 'Comment'}
-        </button>
       </div>
 
       <AnimatePresence initial={false}>
