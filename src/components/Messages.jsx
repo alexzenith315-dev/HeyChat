@@ -8,11 +8,24 @@ import Avatar from './Avatar';
 
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
 const KIND_LABEL = { dm: 'Direct', group: 'Group', channel: 'Channel' };
+// Contacts = one-to-one chats (kind dm). All shows everything.
+const TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'contacts', label: 'Contacts' },
+  { id: 'group', label: 'Group' },
+  { id: 'channel', label: 'Channel' },
+];
+function matchesTab(c, tab) {
+  if (tab === 'all') return true;
+  if (tab === 'contacts') return c.kind === 'dm';
+  return c.kind === tab;
+}
 
 export default function Messages({ viewer }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
   const [composing, setComposing] = useState(false);
+  const [tab, setTab] = useState('all');
   const reduce = useReducedMotion();
   const navigate = useNavigate();
 
@@ -29,6 +42,8 @@ export default function Messages({ viewer }) {
   useEffect(() => {
     refresh();
   }, [viewer.id]);
+
+  const visible = (items ?? []).filter((c) => matchesTab(c, tab));
 
   return (
     <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-8">
@@ -72,6 +87,29 @@ export default function Messages({ viewer }) {
         </div>
       )}
 
+      <div role="tablist" aria-label="Filter conversations" className="mt-5 flex gap-1 overflow-x-auto rounded-full bg-canvas-soft p-1">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`focus-ring relative flex-1 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold transition-colors ${
+              tab === t.id ? 'text-ink' : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {tab === t.id && (
+              <motion.span
+                layoutId="msg-tab"
+                transition={reduce ? { duration: 0 } : spring}
+                className="absolute inset-0 rounded-full bg-white shadow-soft"
+              />
+            )}
+            <span className="relative">{t.label}</span>
+          </button>
+        ))}
+      </div>
+
       {items?.length === 0 && (
         <div className="mt-14 text-center">
           <p className="text-xl font-bold text-ink">No conversations yet.</p>
@@ -79,9 +117,13 @@ export default function Messages({ viewer }) {
         </div>
       )}
 
-      {items?.length > 0 && (
+      {items?.length > 0 && visible.length === 0 && (
+        <p className="mt-10 text-center text-ink-muted">Nothing in {TABS.find((t) => t.id === tab).label.toLowerCase()} yet.</p>
+      )}
+
+      {visible.length > 0 && (
         <ul className="mt-6 space-y-2">
-          {items.map((c) => (
+          {visible.map((c) => (
             <motion.li key={c.id} layout={!reduce} transition={spring}>
               <Link
                 to={`/messages/${c.id}`}

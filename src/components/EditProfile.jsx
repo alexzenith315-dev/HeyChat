@@ -1,39 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchProfile, updateBio, updateAvatar, updateName, MAX_BIO, MAX_AVATAR_BYTES } from '../lib/db';
+import { fetchProfile, updateBio, updateAvatar, updateName, MAX_BIO, readUploadDataUrl } from '../lib/db';
 import Avatar from './Avatar';
 
 const SIZE = 128;
 
 // Crops to a centered square and re-encodes as JPEG, lowering quality until the
 // data URL fits the storage cap.
-function toAvatarDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    if (!file.type.startsWith('image/')) return reject(new Error('Pick an image file.'));
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const side = Math.min(img.naturalWidth, img.naturalHeight);
-      const canvas = document.createElement('canvas');
-      canvas.width = SIZE;
-      canvas.height = SIZE;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, SIZE, SIZE);
-      for (const q of [0.9, 0.8, 0.7, 0.6, 0.5, 0.4]) {
-        const out = canvas.toDataURL('image/jpeg', q);
-        if (out.length <= MAX_AVATAR_BYTES) return resolve(out);
-      }
-      reject(new Error('That picture is too detailed. Try a simpler one.'));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('That picture could not be read.'));
-    };
-    img.src = url;
-  });
-}
-
 export default function EditProfile({ viewer, onSaved }) {
   const navigate = useNavigate();
   const [loaded, setLoaded] = useState(false);
@@ -97,7 +70,7 @@ export default function EditProfile({ viewer, onSaved }) {
     setStatus('');
     setSaving(true);
     try {
-      const dataUrl = await toAvatarDataUrl(file);
+      const dataUrl = await readUploadDataUrl(file, 'image');
       await updateAvatar(viewer.id, dataUrl);
       setAvatar(dataUrl);
       setStatus('Picture saved.');

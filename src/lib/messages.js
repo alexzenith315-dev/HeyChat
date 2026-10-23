@@ -1,8 +1,8 @@
 // Messaging client. Talks to the Express API (server/index.js) like db.js does.
-import { api } from './db';
+import { api, MAX_UPLOAD_BYTES } from './db';
 
 export const MAX_MESSAGE = 1000;
-export const MAX_MESSAGE_IMAGE_BYTES = 200 * 1024;
+export const MAX_MESSAGE_IMAGE_BYTES = MAX_UPLOAD_BYTES;
 
 // Schema lives in Postgres now. Kept so existing callers keep working.
 export function ensureMessagesSchema() {

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { X, ImageSquare } from '@phosphor-icons/react';
-import { api, createPost, fetchFeed, MAX_POST_IMAGE_BYTES } from '../lib/db';
+import { api, createPost, fetchFeed, readUploadDataUrl, createStatus, fetchStatuses } from '../lib/db';
+import { timeAgo } from '../lib/time';
 import Post from './Post';
 import Avatar from './Avatar';
 
@@ -11,32 +12,6 @@ const spring = { type: 'spring', stiffness: 420, damping: 34 };
 
 // Scales the picture down to fit within 1024px, then re-encodes as JPEG at
 // decreasing quality until the data URL is under the storage cap.
-function toPostImageDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    if (!file.type.startsWith('image/')) return reject(new Error('Pick an image file.'));
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const scale = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.naturalWidth * scale);
-      canvas.height = Math.round(img.naturalHeight * scale);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      for (const q of [0.85, 0.75, 0.65, 0.55, 0.45, 0.35]) {
-        const out = canvas.toDataURL('image/jpeg', q);
-        if (out.length <= MAX_POST_IMAGE_BYTES) return resolve(out);
-      }
-      reject(new Error('That picture is too detailed. Try a simpler one.'));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('That picture could not be read.'));
-    };
-    img.src = url;
-  });
-}
-
 const TABS = [
   { id: 'foryou', label: 'For you' },
   { id: 'following', label: 'Following' },
@@ -44,37 +19,193 @@ const TABS = [
   { id: 'reels', label: 'Reels' },
 ];
 
+function StatusComposer({ onClose, onPosted }) {
+  const [body, setBody] = useState('');
+  const [image, setImage] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const fileRef = useRef(null);
+
+  async function pick(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError('');
+    try {
+      setImage(await readUploadDataUrl(file, 'image'));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (busy || (!body.trim() && !image)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await createStatus(body.trim(), image);
+      onPosted();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="card mt-3 space-y-3 p-4" aria-label="Post a status">
+      <div className="flex items-center justify-between">
+        <p className="font-semibold text-ink">New status</p>
+        <button type="button" onClick={onClose} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-black/5">
+          Cancel
+        </button>
+      </div>
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        maxLength={280}
+        rows={2}
+        placeholder="What's happening? (disappears in 24h)"
+        className="focus-ring w-full resize-none rounded-xl border border-hairline bg-white p-3 text-ink"
+      />
+      {image && (
+        <div className="relative">
+          <img src={image} alt="Status attachment" className="max-h-48 w-full rounded-xl object-cover" />
+          <button
+            type="button"
+            onClick={() => setImage(null)}
+            aria-label="Remove picture"
+            className="focus-ring absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-ink/70 text-white"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="focus-ring flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-black/5"
+        >
+          <ImageSquare size={18} aria-hidden="true" /> Picture
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" onChange={pick} className="sr-only" tabIndex={-1} />
+        <button
+          type="submit"
+          disabled={busy || (!body.trim() && !image)}
+          className="focus-ring rounded-full bg-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >
+          {busy ? 'Posting...' : 'Post status'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function StoriesRow({ viewer }) {
   const [people, setPeople] = useState([]);
+  const [statuses, setStatuses] = useState([]);
+  const [composing, setComposing] = useState(false);
+  const [viewing, setViewing] = useState(null);
+
+  function loadStatuses() {
+    fetchStatuses()
+      .then(setStatuses)
+      .catch(() => {});
+  }
+
   useEffect(() => {
     api('GET', '/api/users')
       .then(setPeople)
       .catch(() => {});
+    loadStatuses();
   }, []);
+
+  const mine = statuses.find((s) => s.mine);
+  const latestByUser = new Map();
+  for (const s of statuses) if (!latestByUser.has(s.userId)) latestByUser.set(s.userId, s);
+
   return (
-    <div className="-mx-4 overflow-x-auto px-4 pb-1" aria-label="Crew">
-      <ul className="flex gap-3">
-        <li>
-          <Link to={`/u/${viewer.id}`} className="focus-ring flex w-16 flex-col items-center gap-1">
-            <span className="rounded-full bg-primary/15 p-0.5">
-              <Avatar name={viewer.name} size="size-14" text="text-lg" />
-            </span>
-            <span className="w-full truncate text-center text-xs text-ink-muted">You</span>
-          </Link>
-        </li>
-        {people.map((u) => (
-          <li key={u.id}>
-            <Link to={`/u/${u.id}`} className="focus-ring flex w-16 flex-col items-center gap-1">
-              <span className="rounded-full bg-gradient-to-tr from-primary to-accent-sky p-0.5">
+    <div>
+      <div className="-mx-4 overflow-x-auto px-4 pb-1" aria-label="Crew">
+        <ul className="flex gap-3">
+          <li>
+            <button
+              type="button"
+              onClick={() => (mine ? setViewing(mine) : setComposing((v) => !v))}
+              aria-expanded={composing}
+              className="focus-ring flex w-16 flex-col items-center gap-1"
+            >
+              <span className={`rounded-full p-0.5 ${mine ? 'bg-gradient-to-tr from-primary to-accent-sky' : 'bg-primary/15'}`}>
                 <span className="block rounded-full bg-canvas p-0.5">
-                  <Avatar name={u.name} src={u.avatar} size="size-12" text="text-base" />
+                  <Avatar name={viewer.name} src={viewer.avatar} size="size-14" text="text-lg" />
                 </span>
               </span>
-              <span className="w-full truncate text-center text-xs text-ink-secondary">{u.name}</span>
-            </Link>
+              <span className="w-full truncate text-center text-xs text-ink-muted">{mine ? 'Your status' : 'Add status'}</span>
+            </button>
           </li>
-        ))}
-      </ul>
+          {people
+            .filter((u) => latestByUser.has(u.id))
+            .map((u) => (
+              <li key={u.id}>
+                <button
+                  type="button"
+                  onClick={() => setViewing(latestByUser.get(u.id))}
+                  className="focus-ring flex w-16 flex-col items-center gap-1"
+                >
+                  <span className="rounded-full bg-gradient-to-tr from-primary to-accent-sky p-0.5">
+                    <span className="block rounded-full bg-canvas p-0.5">
+                      <Avatar name={u.name} src={u.avatar} size="size-12" text="text-base" />
+                    </span>
+                  </span>
+                  <span className="w-full truncate text-center text-xs text-ink-secondary">{u.name}</span>
+                </button>
+              </li>
+            ))}
+          {people.map((u) =>
+            latestByUser.has(u.id) ? null : (
+              <li key={u.id}>
+                <Link to={`/u/${u.id}`} className="focus-ring flex w-16 flex-col items-center gap-1">
+                  <span className="rounded-full bg-black/5 p-0.5">
+                    <Avatar name={u.name} src={u.avatar} size="size-12" text="text-base" />
+                  </span>
+                  <span className="w-full truncate text-center text-xs text-ink-muted">{u.name}</span>
+                </Link>
+              </li>
+            ),
+          )}
+        </ul>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {composing && (
+          <motion.div key="status-composer" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={spring} className="overflow-hidden">
+            <StatusComposer
+              onClose={() => setComposing(false)}
+              onPosted={() => {
+                setComposing(false);
+                loadStatuses();
+              }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {viewing && (
+        <div role="dialog" aria-label={`${viewing.name}'s status`} className="card mt-3 space-y-2 p-4">
+          <div className="flex items-center justify-between">
+            <p className="font-semibold text-ink">{viewing.name}</p>
+            <button type="button" onClick={() => setViewing(null)} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-black/5">
+              Close
+            </button>
+          </div>
+          {viewing.body && <p className="whitespace-pre-wrap text-ink">{viewing.body}</p>}
+          {viewing.image && <img src={viewing.image} alt="" className="max-h-80 w-full rounded-xl object-cover" />}
+          <p className="text-xs text-ink-faint">{timeAgo(viewing.createdAt)}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -174,19 +305,11 @@ export default function Feed({ viewer, onCoinsChanged }) {
     setError('');
     try {
       if (file.type.startsWith('video/')) {
-        if (!/^video\/(mp4|webm)$/.test(file.type)) throw new Error('Videos must be mp4 or webm.');
-        if (file.size > 1000 * 1024) throw new Error('That video is too large (1 MB max).');
-        const dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => reject(new Error('Could not read that video.'));
-          reader.readAsDataURL(file);
-        });
-        setVideo(dataUrl);
+        setVideo(await readUploadDataUrl(file, 'video'));
         setImage(null);
         return;
       }
-      setImage(await toPostImageDataUrl(file));
+      setImage(await readUploadDataUrl(file, 'image'));
       setVideo(null);
     } catch (err) {
       setError(err.message);

@@ -6,9 +6,11 @@ const API = import.meta.env.VITE_API_URL ?? '';
 
 export const EMOJIS = ['🔥', '😂', '❤️', '💯'];
 export const PAGE_SIZE = 20;
-export const MAX_POST_IMAGE_BYTES = 200 * 1024;
+// One upload cap for images, videos and attachments: 30 MB on the raw file.
+export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+export const MAX_POST_IMAGE_BYTES = MAX_UPLOAD_BYTES;
 export const MAX_BIO = 160;
-export const MAX_AVATAR_BYTES = 60 * 1024;
+export const MAX_AVATAR_BYTES = MAX_UPLOAD_BYTES;
 export const MAX_GRANT = 10000;
 export const CREATOR_DAYS = 14;
 export const GIFT_TIERS = [
@@ -16,6 +18,19 @@ export const GIFT_TIERS = [
   { id: 'premium', label: 'Premium' },
   { id: 'luxury', label: 'Luxury' },
 ];
+
+// Reads an uploaded file as-is (no recompression) after checking type and size.
+export function readUploadDataUrl(file, kind = 'image') {
+  const ok = kind === 'video' ? /^video\/(mp4|webm)$/.test(file.type) : file.type.startsWith('image/');
+  if (!ok) return Promise.reject(new Error(kind === 'video' ? 'Videos must be mp4 or webm.' : 'Pick an image file.'));
+  if (file.size > MAX_UPLOAD_BYTES) return Promise.reject(new Error('That file is too large (30 MB max).'));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('That file could not be read.'));
+    reader.readAsDataURL(file);
+  });
+}
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
@@ -186,6 +201,19 @@ export function fetchProfile(id) {
 export async function updateName(userId, name) {
   const data = await api('PUT', '/api/me/name', { name });
   return data.name;
+}
+
+export async function updateEmail(email) {
+  const data = await api('PUT', '/api/me/email', { email });
+  return data.email;
+}
+
+export async function fetchStatuses() {
+  return api('GET', '/api/statuses');
+}
+
+export async function createStatus(body, image = null) {
+  await api('POST', '/api/statuses', { body, image });
 }
 
 export async function updateBio(userId, bio) {

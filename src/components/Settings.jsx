@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CaretRight, SignOut } from '@phosphor-icons/react';
-import { setToken, listInvites, createInvite } from '../lib/db';
+import { setToken, listInvites, createInvite, updateEmail } from '../lib/db';
 import Avatar from './Avatar';
 
 function Row({ children, to, onClick, danger }) {
@@ -28,6 +28,24 @@ export default function Settings({ viewer, onLogout }) {
   const [fresh, setFresh] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState(viewer.email ?? '');
+  const [emailSaved, setEmailSaved] = useState('');
+
+  async function saveEmail(e) {
+    e.preventDefault();
+    setError('');
+    setEmailSaved('');
+    setBusy(true);
+    try {
+      const saved = await updateEmail(email.trim());
+      setEmail(saved ?? '');
+      setEmailSaved(saved ? 'Email saved.' : 'Email removed.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!viewer.isAdmin) return;
@@ -72,6 +90,25 @@ export default function Settings({ viewer, onLogout }) {
           <Row to="/profile/edit">Edit profile</Row>
           <Row to={`/u/${viewer.id}`}>View my profile</Row>
         </div>
+        <form onSubmit={saveEmail} className="space-y-2 border-t border-hairline px-5 py-4" aria-label="Email">
+          <label htmlFor="email-input" className="block text-sm font-medium text-ink-secondary">Email</label>
+          <div className="flex gap-2">
+            <input
+              id="email-input"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              maxLength={254}
+              placeholder="you@example.com"
+              autoComplete="email"
+              className="focus-ring min-w-0 flex-1 rounded-xl border border-hairline bg-white px-3 py-2 text-ink"
+            />
+            <button type="submit" disabled={busy} className="focus-ring rounded-full bg-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              Save
+            </button>
+          </div>
+          {emailSaved && <p className="text-sm text-ink-muted">{emailSaved}</p>}
+        </form>
       </section>
 
       <section className="card mt-4 overflow-hidden" aria-labelledby="general-h">

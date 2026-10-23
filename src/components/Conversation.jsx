@@ -12,41 +12,13 @@ import {
   updateConversation,
   removeConversationMember,
   MAX_MESSAGE,
-  MAX_MESSAGE_IMAGE_BYTES,
 } from '../lib/messages';
 import Avatar from './Avatar';
 import ConversationInfo from './ConversationInfo';
+import { readUploadDataUrl } from '../lib/db';
 
 const POLL_MS = 3000;
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
-
-// Same resize-and-recompress approach as posts, but kept under the 200KB cap
-// for messages specifically.
-function toMessageImageDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    if (!file.type.startsWith('image/')) return reject(new Error('Pick an image file.'));
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const scale = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.naturalWidth * scale);
-      canvas.height = Math.round(img.naturalHeight * scale);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      for (const q of [0.85, 0.75, 0.65, 0.55, 0.45, 0.35]) {
-        const out = canvas.toDataURL('image/jpeg', q);
-        if (out.length <= MAX_MESSAGE_IMAGE_BYTES) return resolve(out);
-      }
-      reject(new Error('That picture is too detailed. Try a simpler one.'));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('That picture could not be read.'));
-    };
-    img.src = url;
-  });
-}
 
 export default function Conversation({ viewer }) {
   const { id } = useParams();
@@ -117,7 +89,7 @@ export default function Conversation({ viewer }) {
     if (!file) return;
     setSendError('');
     try {
-      setImage(await toMessageImageDataUrl(file));
+      setImage(await readUploadDataUrl(file, 'image'));
     } catch (err) {
       setSendError(err.message);
     }

@@ -109,9 +109,9 @@ async function requireAuth(req, res, next) {
     } catch {
       return res.status(401).json({ error: 'Your session expired. Sign in again.' });
     }
-    const u = await one('SELECT id, name, is_admin, banned FROM users WHERE id = ?', [Number(payload.sub)]);
+    const u = await one('SELECT id, name, is_admin, banned, email FROM users WHERE id = ?', [Number(payload.sub)]);
     if (!u || u.banned) return res.status(401).json({ error: 'Sign in first.' });
-    req.user = { id: Number(u.id), name: u.name, isAdmin: !!u.is_admin };
+    req.user = { id: Number(u.id), name: u.name, isAdmin: !!u.is_admin, email: u.email ?? null };
     next();
   } catch (e) {
     next(e);
@@ -126,7 +126,18 @@ function requireAdmin(req, res, next) {
 /* ---------- app ---------- */
 
 const app = express();
-app.use(express.json({ limit: '400kb' }));
+// Uploads travel as base64 data URLs, which are ~33% bigger than the file.
+// 30 MB raw file -> ~40 MB of JSON, so the body cap sits above that.
+const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+app.use(express.json({ limit: '42mb' }));
+// Rejects a data URL that decodes to more than the cap.
+function tooBig(dataUrl) {
+  if (!dataUrl) return false;
+  const comma = dataUrl.indexOf(',');
+  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - pad > MAX_UPLOAD_BYTES;
+}
 
 // Auth (public)
 app.post(
@@ -269,6 +280,65 @@ app.put(
   }),
 );
 
+// Statuses: a text and/or image that disappears after 24 hours.
+const STATUS_TTL_MS = 24 * 60 * 60 * 1000;
+
+app.get(
+  '/api/statuses',
+  wrap(async (req, res) => {
+    const rows = await q(
+      `SELECT s.id, s.user_id, s.body, s.image, s.created_at, u.name, u.avatar
+       FROM statuses s JOIN users u ON u.id = s.user_id
+       WHERE s.created_at > ? AND u.banned = false
+         AND (s.user_id = ? OR s.user_id IN (SELECT followee_id FROM follows WHERE follower_id = ?))
+       ORDER BY s.created_at DESC LIMIT 200`,
+      [Date.now() - STATUS_TTL_MS, me(req), me(req)],
+    );
+    res.json(
+      rows.map((r) => ({
+        id: Number(r.id),
+        userId: Number(r.user_id),
+        name: r.name,
+        avatar: r.avatar ?? null,
+        body: r.body ?? '',
+        image: r.image ?? null,
+        createdAt: Number(r.created_at),
+        mine: Number(r.user_id) === me(req),
+      })),
+    );
+  }),
+);
+
+app.post(
+  '/api/statuses',
+  wrap(async (req, res) => {
+    const text = String(req.body?.body ?? '').trim();
+    const image = req.body?.image ?? null;
+    if (!text && !image) bad('Write something or add a picture first.');
+    if (text.length > 280) bad('Keep it under 280 characters.');
+    if (tooBig(image)) bad('That file is too large (30 MB max).');
+    if (image && !/^data:image\//.test(image)) bad('Statuses take pictures only.');
+    await exec('INSERT INTO statuses (user_id, body, image, created_at) VALUES (?, ?, ?, ?)', [
+      me(req),
+      text,
+      image,
+      Date.now(),
+    ]);
+    res.json({ ok: true });
+  }),
+);
+
+app.put(
+  '/api/me/email',
+  wrap(async (req, res) => {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    if (email.length > 254) bad('That email is too long.');
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) bad('Enter a valid email address.');
+    await exec('UPDATE users SET email = ? WHERE id = ?', [email || null, me(req)]);
+    res.json({ ok: true, email: email || null });
+  }),
+);
+
 app.put(
   '/api/me/bio',
   wrap(async (req, res) => {
@@ -283,7 +353,7 @@ app.put(
   '/api/me/avatar',
   wrap(async (req, res) => {
     const dataUrl = req.body?.dataUrl ?? null;
-    if (dataUrl && dataUrl.length > 60 * 1024) bad('That picture is too large.');
+    if (tooBig(dataUrl)) bad('That file is too large (30 MB max).');
     await exec('UPDATE users SET avatar = ? WHERE id = ?', [dataUrl, me(req)]);
     res.json({ ok: true });
   }),
@@ -292,7 +362,6 @@ app.put(
 /* ---- feed & posts ---- */
 
 const PAGE_SIZE = 20;
-const MAX_VIDEO_BYTES = 1500 * 1024;
 const VIDEO_MIME = /^data:(video\/(mp4|webm));base64,/;
 
 app.get(
@@ -378,10 +447,10 @@ app.post(
     const video = req.body?.video ?? null;
     if (!text && !image && !video) bad('Write something first.');
     if (text.length > 280) bad('Keep it under 280 characters.');
-    if (image && image.length > 200 * 1024) bad('That picture is too large.');
+    if (tooBig(image)) bad('That file is too large (30 MB max).');
     if (video) {
       if (!VIDEO_MIME.test(video)) bad('Videos must be mp4 or webm.');
-      if (video.length > MAX_VIDEO_BYTES) bad('That video is too large.');
+      if (tooBig(video)) bad('That file is too large (30 MB max).');
     }
     await exec('INSERT INTO posts (user_id, body, image, video, created_at) VALUES (?, ?, ?, ?, ?)', [
       me(req),
@@ -895,7 +964,7 @@ app.post(
     const image = req.body?.image ?? null;
     if (!text && !image) bad('Write something first.');
     if (text.length > 1000) bad('Keep it under 1000 characters.');
-    if (image && image.length > 200 * 1024) bad('That picture is too large.');
+    if (tooBig(image)) bad('That file is too large (30 MB max).');
     const c = await one(
       `SELECT c.kind, c.created_by FROM conversations c
        JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = ?
@@ -1087,6 +1156,9 @@ const PORT = Number(process.env.PORT) || 3000;
 async function migrate() {
   await exec('ALTER TABLE conversations ADD COLUMN IF NOT EXISTS description TEXT');
   await exec('ALTER TABLE posts ADD COLUMN IF NOT EXISTS video TEXT');
+  await exec('ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT');
+  await exec('CREATE TABLE IF NOT EXISTS statuses (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT, image TEXT, created_at BIGINT NOT NULL)');
+  await exec('CREATE INDEX IF NOT EXISTS statuses_user_created ON statuses (user_id, created_at)');
 }
 migrate()
   .catch((e) => console.error('Migration failed', e))

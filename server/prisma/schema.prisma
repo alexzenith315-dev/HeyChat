@@ -16,6 +16,7 @@ model User {
   banned           Boolean   @default(false)
   bio              String?
   avatar           String?
+  email            String?
   coins            Int       @default(0)
   createdAt        BigInt    @map("created_at")
 
