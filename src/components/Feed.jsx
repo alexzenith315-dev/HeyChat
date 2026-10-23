@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { X, ImageSquare, FilmStrip, BookmarkSimple, Heart, ChatCircle, MagnifyingGlass, MusicNotes, Plus, ShareFat } from '@phosphor-icons/react';
 import {
@@ -33,7 +33,6 @@ const TABS = [
   { id: 'foryou', label: 'For you' },
   { id: 'following', label: 'Following' },
   { id: 'latest', label: 'Latest' },
-  { id: 'reels', label: 'Reels' },
 ];
 
 const MAX_STATUS_PICS = 10;
@@ -432,10 +431,12 @@ function ReelsTab({ posts, viewer, loading, error, hasMore, loadingMore, onLoadM
   );
 }
 
-
 export default function Feed({ viewer, onCoinsChanged }) {
   const [searchParams] = useSearchParams();
-  const [tab, setTab] = useState(searchParams.get('tab') === 'reels' ? 'reels' : 'foryou');
+  const navigate = useNavigate();
+  // Reels are a separate fullscreen page (bottom-nav /?tab=reels), not a home tab.
+  const reelsPage = searchParams.get('tab') === 'reels';
+  const [tab, setTab] = useState('foryou');
   const composerRef = useRef(null);
   const [posts, setPosts] = useState(null);
 
@@ -533,6 +534,24 @@ export default function Feed({ viewer, onCoinsChanged }) {
     } finally {
       setPosting(false);
     }
+  }
+
+  if (reelsPage) {
+    return (
+      <ReelsTab
+        posts={posts}
+        viewer={viewer}
+        loading={posts === null && !error}
+        error={error}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        onLoadMore={more}
+        onRetry={load}
+        onExit={() => navigate('/', { replace: true })}
+        onChanged={load}
+        onCoinsChanged={onCoinsChanged}
+      />
+    );
   }
 
   return (
@@ -671,29 +690,13 @@ export default function Feed({ viewer, onCoinsChanged }) {
         </motion.div>
       )}
 
-      {tab === 'reels' ? (
-        <ReelsTab
-          posts={visible}
-          viewer={viewer}
-          loading={posts === null && !error}
-          error={error}
-          hasMore={hasMore}
-          loadingMore={loadingMore}
-          onLoadMore={more}
-          onRetry={load}
-          onExit={() => setTab('foryou')}
-          onChanged={load}
-          onCoinsChanged={onCoinsChanged}
-        />
-      ) : (
-        <motion.div layout className="mt-6 space-y-3">
-          <AnimatePresence initial={false}>
-            {visible?.map((p) => (
-              <Post key={p.id} post={p} viewer={viewer} onChanged={load} onCoinsChanged={onCoinsChanged} />
-            ))}
-          </AnimatePresence>
-        </motion.div>
-      )}
+      <motion.div layout className="mt-6 space-y-3">
+        <AnimatePresence initial={false}>
+          {visible?.map((p) => (
+            <Post key={p.id} post={p} viewer={viewer} onChanged={load} onCoinsChanged={onCoinsChanged} />
+          ))}
+        </AnimatePresence>
+      </motion.div>
       {tab === 'following' && posts && visible.length === 0 && (
         <p className="mt-10 text-center text-ink-muted">Follow someone to see their posts here.</p>
       )}
