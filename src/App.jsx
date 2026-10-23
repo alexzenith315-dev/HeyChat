@@ -45,11 +45,13 @@ function Shell({ user, onLogout, onUserChanged }) {
       .then((w) => setCoins(w.coins))
       .catch(() => {});
   }
+  const isReelsTab = pathname === '/' && new URLSearchParams(search).get('tab') === 'reels';
+  const showFab = !isReelsTab && !pathname.startsWith('/settings') && !/^\/messages\/.+/.test(pathname);
   const navItems = [
     { label: 'Home', to: '/', icon: House, match: (p, s) => p === '/' && !new URLSearchParams(s).get('tab') },
     { label: 'Discover', to: '/discover', icon: MagnifyingGlass, match: (p) => p.startsWith('/discover') },
-    { label: 'Create', center: true },
     { label: 'Reels', to: '/?tab=reels', icon: Play, match: (p, s) => p === '/' && new URLSearchParams(s).get('tab') === 'reels' },
+    { label: 'Chat', to: '/messages', icon: ChatCircle, match: (p) => p.startsWith('/messages') },
     { label: 'Profile', to: `/u/${user.id}`, icon: UserCircle, match: (p) => p === `/u/${user.id}` },
   ];
 
@@ -143,19 +145,6 @@ function Shell({ user, onLogout, onUserChanged }) {
           {navItems.map((it) => {
             const active = it.match ? it.match(pathname, search) : false;
             const Icon = it.icon;
-            if (it.center) {
-              return (
-                <button
-                  key="create"
-                  type="button"
-                  onClick={() => (pathname === '/' ? window.dispatchEvent(new Event('hc:compose')) : navigate('/?compose=1'))}
-                  aria-label="Create post"
-                  className="focus-ring -mt-5 grid size-12 place-items-center rounded-full bg-primary text-white shadow-soft active:scale-95"
-                >
-                  <Plus size={24} weight="bold" aria-hidden="true" />
-                </button>
-              );
-            }
             return (
               <Link
                 key={it.label}
@@ -171,6 +160,17 @@ function Shell({ user, onLogout, onUserChanged }) {
           })}
         </div>
       </nav>
+      {showFab && (
+        <button
+          type="button"
+          onClick={() => (pathname === '/' ? window.dispatchEvent(new Event('hc:compose')) : navigate('/?compose=1'))}
+          aria-label="Create post"
+          className="focus-ring fixed right-4 z-30 grid size-14 place-items-center rounded-full bg-primary text-white shadow-[0_8px_24px_rgba(0,0,0,0.25)] active:scale-95"
+          style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 1rem)' }}
+        >
+          <Plus size={26} weight="bold" aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }
