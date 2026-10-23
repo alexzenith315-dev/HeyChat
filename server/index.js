@@ -1117,19 +1117,19 @@ app.post(
   }),
 );
 
-app.put(
-  '/api/conversations/:id/mute',
-  wrap(async (req, res) => {
-    const id = Number(req.params.id);
-    if (!(await requireMember(id, me(req)))) return res.status(404).json({ error: 'Not in this conversation.' });
-    await exec('UPDATE conversation_members SET muted = ? WHERE conversation_id = ? AND user_id = ?', [
-      !!req.body?.muted,
-      id,
-      me(req),
-    ]);
-    res.json({ ok: true });
-  }),
-);
+// The client calls POST; PUT is kept so any older caller still works.
+const setMute = wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!(await requireMember(id, me(req)))) return res.status(404).json({ error: 'Not in this conversation.' });
+  await exec('UPDATE conversation_members SET muted = ? WHERE conversation_id = ? AND user_id = ?', [
+    !!req.body?.muted,
+    id,
+    me(req),
+  ]);
+  res.json({ ok: true });
+});
+app.post('/api/conversations/:id/mute', setMute);
+app.put('/api/conversations/:id/mute', setMute);
 
 app.post(
   '/api/conversations/:id/messages',
