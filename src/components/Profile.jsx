@@ -13,12 +13,19 @@ const PROFILE_TABS = [
   { id: 'reels', label: 'Reels' },
 ];
 
-function Stat({ value, label }) {
-  return (
-    <div className="flex min-w-0 flex-1 flex-col items-center py-3">
+// A stat is a real link to the follower / following list. Posts is informational.
+function Stat({ to, value, label }) {
+  const inner = (
+    <>
       <span className="font-display text-lg font-bold tabular-nums text-ink">{value}</span>
       <span className="text-xs text-ink-muted">{label}</span>
-    </div>
+    </>
+  );
+  if (!to) return <div className="flex min-w-0 flex-1 flex-col items-center py-3">{inner}</div>;
+  return (
+    <Link to={to} className="focus-ring flex min-w-0 flex-1 flex-col items-center rounded-lg py-3 transition-colors hover:bg-ink/5">
+      {inner}
+    </Link>
   );
 }
 
@@ -98,27 +105,23 @@ export default function Profile({ viewer }) {
     );
   }
 
-  const initial = (profile.name || '?').slice(0, 1).toUpperCase();
   const handle = `@${String(profile.name || '').replace(/\s+/g, '').toLowerCase()}`;
 
   return (
     <div className="mx-auto w-full max-w-xl pb-24 sm:pt-6">
-      <section className="card overflow-hidden rounded-none border-x-0 border-t-0 shadow-none sm:rounded-xl sm:border">
-        {/* Cover */}
-        <div className="relative h-32 bg-gradient-to-br from-accent-sky via-primary to-accent-pink sm:h-40" aria-hidden="true">
-          <span className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
-        </div>
+      <section className="overflow-hidden bg-canvas sm:rounded-2xl sm:border sm:border-hairline">
+        {/* Cover: solid theme colour, the avatar overlaps its bottom edge only */}
+        <div className="relative h-32 bg-accent-sky/25 sm:h-40" aria-hidden="true" />
 
         <div className="px-5 pb-5">
-          {/* Overlapping avatar + action */}
-          <div className="-mt-12 flex items-end justify-between gap-3">
-            <div className="rounded-full bg-canvas p-1 shadow-soft">
-              <Avatar name={profile.name} src={profile.avatar} size="size-24" text="text-3xl" />
+          <div className="-mt-14 flex items-end justify-between gap-3">
+            <div className="rounded-full bg-canvas p-1.5 ring-1 ring-hairline">
+              <Avatar name={profile.name} src={profile.avatar} size="size-28" text="text-4xl" />
             </div>
             {isSelf ? (
               <Link
                 to="/profile/edit"
-                className="focus-ring mb-1 rounded-full border border-hairline bg-canvas px-4 py-1.5 text-sm font-semibold text-ink-secondary hover:bg-ink/5"
+                className="focus-ring mb-1 rounded-full border border-hairline bg-canvas px-5 py-2 text-sm font-semibold text-ink-secondary transition-colors hover:bg-ink/5"
               >
                 Edit profile
               </Link>
@@ -129,7 +132,7 @@ export default function Profile({ viewer }) {
                 onClick={toggleFollow}
                 disabled={busy}
                 aria-pressed={profile.followed}
-                className={`focus-ring mb-1 rounded-full border px-5 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50 ${
+                className={`focus-ring mb-1 rounded-full border px-6 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
                   profile.followed ? 'border-hairline bg-canvas text-ink-secondary' : 'border-primary bg-primary text-white'
                 }`}
               >
@@ -147,11 +150,11 @@ export default function Profile({ viewer }) {
             <p className="mt-3 text-sm text-ink-faint">{isSelf ? 'Add a bio from Edit profile.' : 'No bio yet.'}</p>
           )}
 
-          {/* Stats row */}
+          {/* Stats: Followers and Following open the real user lists */}
           <div className="mt-4 flex divide-x divide-hairline rounded-xl border border-hairline bg-canvas-soft">
             <Stat value={posts ? posts.length : '–'} label="Posts" />
-            <Stat value={profile.followers} label="Followers" />
-            <Stat value={profile.following} label="Following" />
+            <Stat to={`/u/${id}/followers`} value={profile.followers} label="Followers" />
+            <Stat to={`/u/${id}/following`} value={profile.following} label="Following" />
           </div>
         </div>
       </section>

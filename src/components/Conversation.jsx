@@ -138,6 +138,7 @@ export default function Conversation({ viewer }) {
         <Link to="/messages" aria-label="Back to messages" className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-ink/5">
           <ArrowLeft size={20} aria-hidden="true" />
         </Link>
+        {conv && <Avatar name={conv.title} src={conv.avatar} size="size-9" />}
         <div className="min-w-0 flex-1">
           <h1 className="truncate font-display text-lg font-bold tracking-tight text-ink">{conv?.title ?? 'Conversation'}</h1>
           {conv && (

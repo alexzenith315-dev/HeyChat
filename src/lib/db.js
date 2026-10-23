@@ -202,6 +202,10 @@ export function fetchProfile(id) {
   return api('GET', `/api/users/${id}`);
 }
 
+export function fetchFollowList(id, kind) {
+  return api('GET', `/api/users/${id}/follows/${kind}`);
+}
+
 export async function updateName(userId, name) {
   const data = await api('PUT', '/api/me/name', { name });
   return data.name;

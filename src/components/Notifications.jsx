@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { Heart, ChatCircle, UserPlus, Gift as GiftIcon } from '@phosphor-icons/react';
 import { fetchNotifications, markNotificationsRead } from '../lib/db';
 import { timeAgo } from '../lib/time';
+import Avatar from './Avatar';
 
 const COPY = {
   like: { text: 'liked your post', Icon: Heart },
@@ -68,9 +69,7 @@ export default function Notifications({ viewer, onRead }) {
                 animate={{ opacity: 1, y: 0 }}
                 className={`card flex items-center gap-3 p-4 ${Number(n.read) ? '' : 'border-primary/40'}`}
               >
-                <div className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-sky text-sm font-bold text-white">
-                  {actor.slice(0, 1).toUpperCase()}
-                </div>
+                <Avatar name={actor} src={n.actor_avatar} size="size-9" />
                 <div className="min-w-0 flex-1">
                   <p className="text-ink">
                     <span className="font-semibold">{actor}</span> {copy.text}

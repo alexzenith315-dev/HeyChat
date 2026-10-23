@@ -12,6 +12,7 @@ import Messages from './components/Messages';
 import Conversation from './components/Conversation';
 import Notifications from './components/Notifications';
 import Profile from './components/Profile';
+import FollowList from './components/FollowList';
 import Settings from './components/Settings';
 import Wallet from './components/Wallet';
 import Creator from './components/Creator';
@@ -128,6 +129,7 @@ function Shell({ user, onLogout, onUserChanged }) {
           <Route path="/messages" element={<Messages viewer={user} />} />
           <Route path="/messages/:id" element={<Conversation viewer={user} />} />
           <Route path="/u/:id" element={<Profile viewer={user} />} />
+          <Route path="/u/:id/:kind" element={<FollowList viewer={user} />} />
           <Route path="/settings" element={<Settings viewer={user} onLogout={onLogout} onUserChanged={onUserChanged} />} />
           <Route path="/invites" element={<Navigate to="/settings" replace />} />
           <Route path="/profile/edit" element={<EditProfile viewer={user} onSaved={onUserChanged} />} />

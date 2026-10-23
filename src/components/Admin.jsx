@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { fetchAdminStats, fetchAdminUsers, fetchRecentPosts, setUserBanned, grantCoins, deletePost, MAX_GRANT } from '../lib/db';
 import { timeAgo } from '../lib/time';
+import Avatar from './Avatar';
 
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
 const fmt = (n) => Number(n).toLocaleString('en-US');
@@ -247,6 +248,8 @@ export default function Admin() {
             return (
               <li key={u.id} className="card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <Avatar name={u.name} src={u.avatar} size="size-10" text="text-sm" />
                   <div className="min-w-0 flex-1">
                     <p className="flex flex-wrap items-center gap-2 font-semibold text-ink">
                       <span className="truncate">{u.name}</span>
@@ -256,6 +259,7 @@ export default function Admin() {
                     <p className="mt-0.5 text-xs text-ink-faint">
                       Joined {joined(u.created_at)} · {fmt(u.postCount)} {u.postCount === 1 ? 'post' : 'posts'} · {fmt(u.coins)} coins
                     </p>
+                  </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <button

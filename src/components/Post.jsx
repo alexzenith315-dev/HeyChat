@@ -235,7 +235,9 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
             <ul className="mt-4 space-y-3 border-t border-hairline pt-4">
               {post.comments.length === 0 && <li className="text-sm text-ink-faint">No replies yet. Be first.</li>}
               {post.comments.map((c) => (
-                <li key={c.id} className="group text-sm">
+                <li key={c.id} className="group flex gap-2.5 text-sm">
+                  <Avatar name={c.author} src={c.author_avatar} size="size-7" text="text-xs" />
+                  <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
                     <span className="font-semibold text-ink">{c.author}</span>
                     <span className="text-xs text-ink-faint">{timeAgo(c.created_at)}</span>
@@ -246,6 +248,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
                     )}
                   </div>
                   <p className="mt-0.5 break-words text-ink-secondary">{c.body}</p>
+                  </div>
                 </li>
               ))}
             </ul>

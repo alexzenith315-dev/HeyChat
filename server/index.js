@@ -216,6 +216,32 @@ app.get(
   }),
 );
 
+// Real follower / following lists for a profile. Each row carries whether the viewer follows that person.
+app.get(
+  '/api/users/:id/follows/:kind',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const kind = req.params.kind;
+    if (!Number.isInteger(id) || (kind !== 'followers' && kind !== 'following')) {
+      return res.status(400).json({ error: 'Bad request.' });
+    }
+    // followers: people who follow :id. following: people :id follows.
+    const rows = await q(
+      kind === 'followers'
+        ? `SELECT u.id, u.name, u.avatar,
+             (SELECT COUNT(*) FROM follows x WHERE x.follower_id = ? AND x.followee_id = u.id) AS followed
+           FROM follows f JOIN users u ON u.id = f.follower_id
+           WHERE f.followee_id = ? AND u.banned = false ORDER BY lower(u.name)`
+        : `SELECT u.id, u.name, u.avatar,
+             (SELECT COUNT(*) FROM follows x WHERE x.follower_id = ? AND x.followee_id = u.id) AS followed
+           FROM follows f JOIN users u ON u.id = f.followee_id
+           WHERE f.follower_id = ? AND u.banned = false ORDER BY lower(u.name)`,
+      [me(req), id],
+    );
+    res.json(rows.map((r) => ({ id: Number(r.id), name: r.name, avatar: r.avatar ?? null, followed: Number(r.followed) > 0 })));
+  }),
+);
+
 app.get(
   '/api/users/:id',
   wrap(async (req, res) => {
@@ -409,7 +435,7 @@ app.get(
         [viewer, ...ids],
       ),
       q(
-        `SELECT c.id, c.post_id, c.body, c.created_at, c.user_id, u.name AS author
+        `SELECT c.id, c.post_id, c.body, c.created_at, c.user_id, u.name AS author, u.avatar AS author_avatar
          FROM comments c JOIN users u ON u.id = c.user_id
          WHERE c.post_id IN (${marks}) ORDER BY c.id ASC`,
         ids,
@@ -605,7 +631,7 @@ app.get(
   '/api/notifications',
   wrap(async (req, res) => {
     const rows = await q(
-      `SELECT n.id, n.kind, n.post_id, n.read, n.created_at, n.actor_id, u.name AS actor
+      `SELECT n.id, n.kind, n.post_id, n.read, n.created_at, n.actor_id, u.name AS actor, u.avatar AS actor_avatar
        FROM notifications n LEFT JOIN users u ON u.id = n.actor_id
        WHERE n.user_id = ? ORDER BY n.created_at DESC, n.id DESC LIMIT 100`,
       [me(req)],
@@ -783,6 +809,8 @@ app.get(
            SELECT u.name FROM conversation_members m JOIN users u ON u.id = m.user_id
            WHERE m.conversation_id = c.id AND m.user_id <> ? LIMIT 1
          )) AS title,
+         (SELECT u.avatar FROM conversation_members m JOIN users u ON u.id = m.user_id
+           WHERE m.conversation_id = c.id AND m.user_id <> ? AND c.kind = 'dm' LIMIT 1) AS avatar,
          cm.muted, cm.last_read_id,
          (SELECT COUNT(*) FROM messages x
            WHERE x.conversation_id = c.id AND x.id > cm.last_read_id AND x.sender_id <> ?) AS unread,
@@ -791,13 +819,14 @@ app.get(
        FROM conversations c
        JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = ?
        ORDER BY COALESCE((SELECT MAX(created_at) FROM messages z WHERE z.conversation_id = c.id), c.created_at) DESC, c.id DESC`,
-      [viewer, viewer, viewer],
+      [viewer, viewer, viewer, viewer],
     );
     res.json(
       rows.map((r) => ({
         id: r.id,
         kind: r.kind,
         title: r.title ?? 'Untitled',
+        avatar: r.avatar ?? null,
         createdBy: r.created_by,
         muted: !!r.muted,
         unread: r.muted ? 0 : Number(r.unread),
@@ -846,6 +875,7 @@ app.get(
       description: c.description ?? '',
       createdBy: c.created_by,
       muted: !!c.muted,
+      avatar: c.kind === 'dm' ? members.find((m) => Number(m.id) !== me(req))?.avatar ?? null : null,
       canEdit: canManageConversation(c, me(req), req.user.isAdmin),
       members: members.map((m) => m.name),
       memberList: members.map((m) => ({ id: Number(m.id), name: m.name, avatar: m.avatar ?? null })),
@@ -1054,7 +1084,7 @@ app.get(
     }
     args.push(ADMIN_PAGE + 1, offset);
     const rows = await q(
-      `SELECT u.id, u.name, u.created_at, u.coins, u.banned, u.is_admin,
+      `SELECT u.id, u.name, u.avatar, u.created_at, u.coins, u.banned, u.is_admin,
          (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) AS post_count
        FROM users u ${where} ORDER BY u.created_at DESC, u.id DESC LIMIT ? OFFSET ?`,
       args,
@@ -1065,6 +1095,7 @@ app.get(
       users: rows.slice(0, ADMIN_PAGE).map((r) => ({
         id: r.id,
         name: r.name,
+        avatar: r.avatar ?? null,
         created_at: Number(r.created_at),
         coins: Number(r.coins ?? 0),
         banned: !!r.banned,
