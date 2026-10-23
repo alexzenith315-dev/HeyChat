@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
 import { Bell, Gear, ChatCircle, Coins, ChartBar, ShieldCheck } from '@phosphor-icons/react';
-import { query } from './lib/folkdb';
-import { ensureSchema, getUserById, fetchUnreadCount, fetchWallet } from './lib/db';
+import { ensureSchema, getUserById, fetchUnreadCount, fetchWallet, api, getToken, setToken } from './lib/db';
 import { ensureMessagesSchema, totalUnread } from './lib/messages';
 import Auth from './components/Auth';
 import Feed from './components/Feed';
@@ -17,7 +16,6 @@ import Wallet from './components/Wallet';
 import Creator from './components/Creator';
 import Admin from './components/Admin';
 
-const SESSION_KEY = 'crew-feed-session';
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
 
 function Shell({ user, onLogout }) {
@@ -52,7 +50,7 @@ function Shell({ user, onLogout }) {
   ];
 
   function logout() {
-    localStorage.removeItem(SESSION_KEY);
+    setToken(null);
     onLogout();
     navigate('/');
   }
@@ -170,13 +168,11 @@ export default function App() {
     (async () => {
       try {
         await ensureSchema();
-        const { rows } = await query('SELECT COUNT(*) AS n FROM users');
-        setFirstRun(Number(rows[0].n) === 0);
-        const id = Number(localStorage.getItem(SESSION_KEY));
-        if (id) {
-          const u = await getUserById(id);
+        const status = await api('GET', '/api/setup');
+        setFirstRun(!!status.firstRun);
+        if (getToken()) {
+          const u = await getUserById();
           if (u) setUser(u);
-          else localStorage.removeItem(SESSION_KEY);
         }
       } catch (e) {
         setDbError(e.message);
@@ -187,7 +183,6 @@ export default function App() {
   }, []);
 
   function handleAuthed(u) {
-    localStorage.setItem(SESSION_KEY, String(u.id));
     setUser(u);
   }
 

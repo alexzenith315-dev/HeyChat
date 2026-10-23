@@ -173,6 +173,15 @@ app.post(
   }),
 );
 
+// Public: lets the signup screen know whether it should create the owner account.
+app.get(
+  '/api/setup',
+  wrap(async (req, res) => {
+    const row = await one('SELECT COUNT(*) AS n FROM users');
+    res.json({ firstRun: Number(row.n) === 0 });
+  }),
+);
+
 // Everything below requires a valid session.
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth/')) return next();
