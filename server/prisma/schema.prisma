@@ -1,0 +1,215 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id               Int       @id @default(autoincrement())
+  name             String    @unique
+  passwordHash     String    @map("password_hash")
+  isAdmin          Boolean   @default(false) @map("is_admin")
+  banned           Boolean   @default(false)
+  bio              String?
+  avatar           String?
+  coins            Int       @default(0)
+  lastDailyBonus   String?   @map("last_daily_bonus")
+  createdAt        BigInt    @map("created_at")
+
+  posts            Post[]
+  comments         Comment[]
+  reactions        Reaction[]
+  notifications    Notification[] @relation("NotifUser")
+  actedNotifs      Notification[] @relation("NotifActor")
+  followers        Follow[] @relation("Followee")
+  following        Follow[] @relation("Follower")
+  transactions     Transaction[]
+  invitesCreated   Invite[] @relation("InviteCreator")
+  invitesUsed      Invite[] @relation("InviteUser")
+  memberships      ConversationMember[]
+  conversations    Conversation[] @relation("ConvCreator")
+  messages         Message[]
+  giftsSent        GiftSend[] @relation("GiftSender")
+  giftsReceived    GiftSend[] @relation("GiftRecipient")
+
+  @@map("users")
+}
+
+model Invite {
+  code        String   @id
+  createdBy   Int      @map("created_by")
+  usedBy      Int?     @map("used_by")
+  createdAt   BigInt   @map("created_at")
+
+  creator     User     @relation("InviteCreator", fields: [createdBy], references: [id])
+  user        User?    @relation("InviteUser", fields: [usedBy], references: [id])
+
+  @@map("invites")
+}
+
+model Post {
+  id          Int        @id @default(autoincrement())
+  userId      Int        @map("user_id")
+  body        String
+  image       String?
+  createdAt   BigInt     @map("created_at")
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reactions   Reaction[]
+  comments    Comment[]
+  notifications Notification[]
+  transactions  Transaction[]
+  giftSends   GiftSend[]
+
+  @@index([userId])
+  @@map("posts")
+}
+
+model Comment {
+  id          Int      @id @default(autoincrement())
+  postId      Int      @map("post_id")
+  userId      Int      @map("user_id")
+  body        String
+  createdAt   BigInt   @map("created_at")
+
+  post        Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@map("comments")
+}
+
+model Reaction {
+  postId      Int      @map("post_id")
+  userId      Int      @map("user_id")
+  emoji       String
+  createdAt   BigInt   @map("created_at")
+
+  post        Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([postId, userId, emoji])
+  @@map("reactions")
+}
+
+model Follow {
+  followerId  Int      @map("follower_id")
+  followeeId  Int      @map("followee_id")
+  createdAt   BigInt   @map("created_at")
+
+  follower    User     @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followee    User     @relation("Followee", fields: [followeeId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followeeId])
+  @@map("follows")
+}
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  actorId     Int?     @map("actor_id")
+  kind        String
+  postId      Int?     @map("post_id")
+  read        Boolean  @default(false)
+  createdAt   BigInt   @map("created_at")
+
+  user        User     @relation("NotifUser", fields: [userId], references: [id], onDelete: Cascade)
+  actor       User?    @relation("NotifActor", fields: [actorId], references: [id], onDelete: SetNull)
+  post        Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model Transaction {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  kind          String
+  amount        Int
+  counterpartId Int?     @map("counterpart_id")
+  postId        Int?     @map("post_id")
+  giftId        Int?     @map("gift_id")
+  createdAt     BigInt   @map("created_at")
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post          Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+  gift          Gift?    @relation(fields: [giftId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("transactions")
+}
+
+model Gift {
+  id        Int      @id @default(autoincrement())
+  name      String
+  tier      String
+  coinCost  Int      @map("coin_cost")
+  emoji     String
+
+  sends     GiftSend[]
+  transactions Transaction[]
+
+  @@map("gifts")
+}
+
+model GiftSend {
+  id          Int      @id @default(autoincrement())
+  giftId      Int      @map("gift_id")
+  senderId    Int      @map("sender_id")
+  recipientId Int      @map("recipient_id")
+  postId      Int?     @map("post_id")
+  createdAt   BigInt   @map("created_at")
+
+  gift        Gift     @relation(fields: [giftId], references: [id], onDelete: Cascade)
+  sender      User     @relation("GiftSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient   User     @relation("GiftRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  post        Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@map("gift_sends")
+}
+
+model Conversation {
+  id          Int      @id @default(autoincrement())
+  kind        String
+  title       String?
+  createdBy   Int      @map("created_by")
+  createdAt   BigInt   @map("created_at")
+
+  creator     User     @relation("ConvCreator", fields: [createdBy], references: [id])
+  members     ConversationMember[]
+  messages    Message[]
+
+  @@map("conversations")
+}
+
+model ConversationMember {
+  conversationId Int   @map("conversation_id")
+  userId         Int   @map("user_id")
+  muted          Boolean @default(false)
+  lastReadId     Int   @default(0) @map("last_read_id")
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@map("conversation_members")
+}
+
+model Message {
+  id              Int      @id @default(autoincrement())
+  conversationId  Int      @map("conversation_id")
+  senderId        Int      @map("sender_id")
+  body            String?
+  image           String?
+  createdAt       BigInt   @map("created_at")
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender          User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("messages")
+}
