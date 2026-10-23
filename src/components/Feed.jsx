@@ -22,6 +22,7 @@ import {
 import { timeAgo } from '../lib/time';
 import Post from './Post';
 import Avatar from './Avatar';
+import ReelsViewer from './ReelsViewer';
 
 const MAX = 280;
 const spring = { type: 'spring', stiffness: 420, damping: 34 };
@@ -411,312 +412,26 @@ export function ReelTile({ p, onOpen }) {
   );
 }
 
-// Fullscreen vertical reels viewer, TikTok layout: tabs and search overlaid on the video,
-// right action rail, creator + caption + audio pill bottom-left. Swipe up/down between reels.
-const REEL_TABS = [
-  { id: 'following', label: 'Following' },
-  { id: 'foryou', label: 'For you' },
-  { id: 'latest', label: 'Latest' },
-  { id: 'reels', label: 'Reels' },
-];
-const HASHTAG_RE = /(#[\p{L}\p{N}_]+)/gu;
-const isHashtag = (part) => /^#[\p{L}\p{N}_]+$/u.test(part);
-
-function Caption({ body }) {
-  const [open, setOpen] = useState(false);
-  const long = body.length > 90;
-  const parts = body.split(HASHTAG_RE);
+// Reels tab: fullscreen viewer. Pages through the feed's reels and leaves the reels tab on exit.
+function ReelsTab({ posts, viewer, loading, error, hasMore, loadingMore, onLoadMore, onRetry, onExit, onChanged, onCoinsChanged }) {
+  const reels = useMemo(() => (posts ?? []).filter(isVideoPost), [posts]);
   return (
-    <p className="mt-2 text-[15px] leading-snug text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.7)]">
-      <span className={open || !long ? '' : 'line-clamp-2'}>
-        {parts.map((part, i) => (isHashtag(part) ? <span key={i} className="font-semibold">{part}</span> : <span key={i}>{part}</span>))}
-      </span>
-      {long && (
-        <button type="button" onClick={() => setOpen((v) => !v)} className="focus-ring ml-1 font-semibold text-white/90">
-          {open ? 'less' : '...more'}
-        </button>
-      )}
-    </p>
+    <ReelsViewer
+      viewer={viewer}
+      reels={reels}
+      loading={loading}
+      error={error}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      onLoadMore={onLoadMore}
+      onRetry={onRetry}
+      onExit={onExit}
+      onRemoved={onChanged}
+      onCoinsChanged={onCoinsChanged}
+    />
   );
 }
 
-function RailButton({ label, onClick, pressed, children, count }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={pressed}
-      aria-label={label}
-      className="focus-ring flex flex-col items-center gap-1 text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]"
-    >
-      {children}
-      {count !== undefined && <span className="text-xs font-semibold tabular-nums">{count}</span>}
-    </button>
-  );
-}
-
-function ReelsViewer({ reels, startId, viewer, onTab, onClose, onChanged }) {
-  const [activeId, setActiveId] = useState(startId);
-  const [commenting, setCommenting] = useState(null);
-  const scroller = useRef(null);
-  const videos = useRef(new Map());
-  const counted = useRef(new Set());
-
-  useEffect(() => {
-    const el = scroller.current?.querySelector(`[data-reel-id="${startId}"]`);
-    el?.scrollIntoView({ block: 'start' });
-    // Only the first render should scroll to the starting reel.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const root = scroller.current;
-    if (!root) return undefined;
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const id = Number(entry.target.getAttribute('data-reel-id'));
-          const v = videos.current.get(id);
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-            setActiveId(id);
-            v?.play().catch(() => {});
-            if (!counted.current.has(id)) {
-              counted.current.add(id);
-              recordView(id);
-            }
-          } else {
-            v?.pause();
-          }
-        }
-      },
-      { root, threshold: [0, 0.6] },
-    );
-    root.querySelectorAll('[data-reel-id]').forEach((el) => io.observe(el));
-    return () => io.disconnect();
-  }, [reels]);
-
-  // Keyboard: arrow up/down moves between reels, Escape leaves the viewer.
-  useEffect(() => {
-    function onKey(e) {
-      if (e.key === 'Escape') onClose?.();
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        const idx = reels.findIndex((r) => r.id === activeId);
-        const next = reels[e.key === 'ArrowDown' ? idx + 1 : idx - 1];
-        if (next) scroller.current?.querySelector(`[data-reel-id="${next.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [activeId, reels, onClose]);
-
-  async function run(fn) {
-    try {
-      await fn();
-      onChanged();
-    } catch {
-      /* the next refresh shows the true state */
-    }
-  }
-
-  async function share(p) {
-    const url = `${window.location.origin}/u/${p.user_id}`;
-    try {
-      if (navigator.share) await navigator.share({ title: `${p.author} on HeyChat`, url });
-      else await navigator.clipboard.writeText(url);
-    } catch {
-      /* user dismissed the share sheet */
-    }
-  }
-
-  function selectTab(id) {
-    if (id === 'reels') return;
-    if (onTab) onTab(id);
-    else onClose?.();
-  }
-
-  const commentsFor = reels.find((r) => r.id === commenting);
-
-  return (
-    <div role="dialog" aria-modal="true" aria-label="Reels" className="fixed inset-0 z-50 bg-black">
-      {/* Overlaid top bar: tabs centred with underline on the active one, search top-right */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-center px-14 pt-[max(env(safe-area-inset-top),0.75rem)]">
-        <div role="tablist" aria-label="Feed" className="pointer-events-auto flex gap-4 text-[15px] font-semibold">
-          {REEL_TABS.map((t) => {
-            const active = t.id === 'reels';
-            return (
-              <button
-                key={t.id}
-                role="tab"
-                aria-selected={active}
-                onClick={() => selectTab(t.id)}
-                className={`focus-ring relative whitespace-nowrap py-1 [text-shadow:0_1px_3px_rgba(0,0,0,0.6)] ${active ? 'text-white' : 'text-white/70'}`}
-              >
-                {t.label}
-                {active && <span className="absolute inset-x-0 -bottom-1 h-0.5 rounded-full bg-white" aria-hidden="true" />}
-              </button>
-            );
-          })}
-        </div>
-        <Link to="/discover" aria-label="Search" className="focus-ring pointer-events-auto absolute right-3 top-[max(env(safe-area-inset-top),0.75rem)] grid size-10 place-items-center rounded-full text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]">
-          <MagnifyingGlass size={24} aria-hidden="true" />
-        </Link>
-      </header>
-
-      <div ref={scroller} className="h-full snap-y snap-mandatory overflow-y-scroll overscroll-contain" aria-label="Reels feed">
-        {reels.map((p) => {
-          const active = p.id === activeId;
-          const liked = !!p.reactions?.like?.mine;
-          const followable = p.user_id !== viewer.id;
-          return (
-            <section key={p.id} data-reel-id={p.id} className="relative h-[100dvh] w-full snap-start snap-always bg-black">
-              <video
-                ref={(el) => {
-                  if (el) videos.current.set(p.id, el);
-                  else videos.current.delete(p.id);
-                }}
-                src={p.video}
-                loop
-                muted={false}
-                playsInline
-                preload="metadata"
-                className="absolute inset-0 size-full bg-black object-cover"
-                aria-label={p.body ? p.body.slice(0, 80) : `Reel by ${p.author}`}
-              />
-
-              {/* Bottom-left: creator, caption, audio pill */}
-              <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] left-3 right-20 z-10">
-                <Link to={`/u/${p.user_id}`} className="focus-ring inline-block rounded-md [text-shadow:0_1px_3px_rgba(0,0,0,0.7)]">
-                  <span className="text-[17px] font-bold text-white">@{String(p.author || '').replace(/\s+/g, '').toLowerCase()}</span>
-                </Link>
-                {p.body && <Caption body={p.body} />}
-                <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 text-[13px] text-white">
-                  <MusicNotes size={14} weight="bold" aria-hidden="true" />
-                  <span className="truncate">Original sound · {p.author}</span>
-                </div>
-              </div>
-
-              {/* Right action rail */}
-              <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] right-2 z-10 flex flex-col items-center gap-5">
-                <div className="relative mb-1">
-                  <Link to={`/u/${p.user_id}`} aria-label={`${p.author}'s profile`} className="focus-ring block rounded-full border-2 border-white">
-                    <Avatar name={p.author} src={p.author_avatar} size="size-12" text="text-base" />
-                  </Link>
-                  {followable && !p.followed && (
-                    <button
-                      type="button"
-                      onClick={() => run(() => followUser(viewer.id, p.user_id, p.id))}
-                      aria-label={`Follow ${p.author}`}
-                      className="focus-ring absolute -bottom-2 left-1/2 grid size-5 -translate-x-1/2 place-items-center rounded-full bg-[#ff64c8] text-white"
-                    >
-                      <Plus size={12} weight="bold" aria-hidden="true" />
-                    </button>
-                  )}
-                </div>
-                <RailButton
-                  label={`Like, ${p.reactions?.like?.count ?? 0} so far`}
-                  pressed={liked}
-                  count={p.reactions?.like?.count ?? 0}
-                  onClick={() => run(() => toggleLike(p.id, viewer.id, p.user_id))}
-                >
-                  <Heart size={34} weight={liked ? 'fill' : 'regular'} className={liked ? 'text-[#ff3b5c]' : ''} aria-hidden="true" />
-                </RailButton>
-                <RailButton label={`Comments, ${p.comments?.length ?? 0} so far`} count={p.comments?.length ?? 0} onClick={() => setCommenting(p.id)}>
-                  <ChatCircle size={34} aria-hidden="true" />
-                </RailButton>
-                <RailButton
-                  label={p.saved ? 'Remove from saved' : 'Save reel'}
-                  pressed={!!p.saved}
-                  count={p.saves ?? 0}
-                  onClick={() => run(() => toggleSave(p.id, !p.saved))}
-                >
-                  <BookmarkSimple size={34} weight={p.saved ? 'fill' : 'regular'} aria-hidden="true" />
-                </RailButton>
-                <RailButton label="Share" onClick={() => share(p)}>
-                  <ShareFat size={34} aria-hidden="true" />
-                </RailButton>
-                {/* Spinning sound disc: spins while this reel is on screen */}
-                <div
-                  aria-hidden="true"
-                  className="mt-1 grid size-11 animate-spin place-items-center rounded-full border-[10px] border-zinc-900 bg-zinc-800"
-                  style={{ animationDuration: '4s', animationPlayState: active ? 'running' : 'paused' }}
-                >
-                  <span className="size-2 rounded-full bg-white/80" />
-                </div>
-              </div>
-            </section>
-          );
-        })}
-      </div>
-
-      {commenting && (
-        <div role="dialog" aria-label="Comments" className="absolute inset-x-0 bottom-0 z-30 max-h-[70dvh] overflow-y-auto rounded-t-2xl bg-canvas p-4 text-ink">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="font-semibold">Comments</p>
-            <button type="button" onClick={() => setCommenting(null)} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-ink/5">Close</button>
-          </div>
-          <ul className="space-y-2">
-            {(commentsFor?.comments ?? []).map((c) => (
-              <li key={c.id} className="text-sm"><span className="font-semibold">{c.author}</span> {c.body}</li>
-            ))}
-          </ul>
-          <CommentBox postId={commenting} viewer={viewer} onPosted={onChanged} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CommentBox({ postId, viewer, onPosted }) {
-  const [draft, setDraft] = useState('');
-  async function send(e) {
-    e.preventDefault();
-    if (!draft.trim()) return;
-    try {
-      await addComment(postId, viewer.id, draft.trim());
-      setDraft('');
-      onPosted();
-    } catch {
-      /* the user can retry */
-    }
-  }
-  return (
-    <form onSubmit={send} className="mt-3 flex gap-2">
-      <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Add a comment" maxLength={280} className="focus-ring flex-1 rounded-full border border-hairline bg-canvas px-3 py-2 text-sm text-ink" />
-      <button type="submit" disabled={!draft.trim()} className="focus-ring rounded-full bg-ink px-4 py-2 text-sm font-medium text-canvas disabled:opacity-50">Post</button>
-    </form>
-  );
-}
-
-// Reels tab: the fullscreen vertical viewer, not a grid. Closing it returns to For you.
-function ReelsTab({ posts, viewer, onChanged, onTab }) {
-  if (posts === null) return <p className="mt-6 text-sm text-ink-faint">Loading…</p>;
-  const reels = (posts ?? []).filter(isVideoPost);
-  if (reels.length === 0) {
-    return <p className="mt-10 text-center text-ink-muted">No reels yet. Post a video and it shows up here.</p>;
-  }
-  return <ReelsViewer reels={reels} startId={reels[0].id} viewer={viewer} onTab={onTab} onChanged={onChanged} />;
-}
-
-function ReelsGrid({ posts, viewer, onChanged }) {
-  const [openId, setOpenId] = useState(null);
-  if (posts === null) return <p className="mt-6 text-sm text-ink-faint">Loading…</p>;
-  const reels = (posts ?? []).filter(isVideoPost);
-  if (reels.length === 0) {
-    return <p className="mt-10 text-center text-ink-muted">No reels yet. Post a video and it shows up here.</p>;
-  }
-  return (
-    <>
-      <div className="mt-6 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
-        {reels.map((p) => (
-          <ReelTile key={p.id} p={p} onOpen={() => setOpenId(p.id)} />
-        ))}
-      </div>
-      {openId !== null && (
-        <ReelsViewer reels={reels} startId={openId} viewer={viewer} onClose={() => setOpenId(null)} onChanged={onChanged} />
-      )}
-    </>
-  );
-}
 
 export default function Feed({ viewer, onCoinsChanged }) {
   const [searchParams] = useSearchParams();
@@ -957,7 +672,19 @@ export default function Feed({ viewer, onCoinsChanged }) {
       )}
 
       {tab === 'reels' ? (
-        <ReelsTab posts={visible} viewer={viewer} onChanged={load} onTab={setTab} />
+        <ReelsTab
+          posts={visible}
+          viewer={viewer}
+          loading={posts === null && !error}
+          error={error}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={more}
+          onRetry={load}
+          onExit={() => setTab('foryou')}
+          onChanged={load}
+          onCoinsChanged={onCoinsChanged}
+        />
       ) : (
         <motion.div layout className="mt-6 space-y-3">
           <AnimatePresence initial={false}>
