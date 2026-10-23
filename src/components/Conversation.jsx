@@ -134,7 +134,7 @@ export default function Conversation({ viewer }) {
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-xl flex-col">
-      <header className="sticky top-[57px] z-10 flex items-center gap-3 border-b border-hairline bg-canvas-soft/80 px-4 py-3 backdrop-blur-xl">
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-hairline bg-canvas-soft/80 px-4 py-3 backdrop-blur-xl">
         <Link to="/messages" aria-label="Back to messages" className="focus-ring grid size-9 place-items-center rounded-full text-ink-secondary hover:bg-ink/5">
           <ArrowLeft size={20} aria-hidden="true" />
         </Link>

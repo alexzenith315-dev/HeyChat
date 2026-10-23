@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { GridFour, Image as ImageIcon, FilmStrip, BookmarkSimple, ArrowLeft, MagnifyingGlass, LinkSimple, CalendarBlank, ShareFat } from '@phosphor-icons/react';
+import { GridFour, Image as ImageIcon, FilmStrip, BookmarkSimple, ArrowLeft, MagnifyingGlass, LinkSimple, CalendarBlank, ShareFat, Gear } from '@phosphor-icons/react';
 import { fetchProfile, fetchFeed, toggleFollowUser, fetchSaved } from '../lib/db';
 import Post from './Post';
 import Avatar from './Avatar';
@@ -182,9 +182,14 @@ export default function Profile({ viewer }) {
                 Share
               </button>
               {isSelf ? (
-                <Link to="/profile/edit" className="focus-ring rounded-full border border-hairline bg-canvas px-4 py-1.5 text-sm font-bold text-ink hover:bg-ink/5">
-                  Edit profile
-                </Link>
+                <>
+                  <Link to="/profile/edit" className="focus-ring rounded-full border border-hairline bg-canvas px-4 py-1.5 text-sm font-bold text-ink hover:bg-ink/5">
+                    Edit profile
+                  </Link>
+                  <Link to="/settings" aria-label="Settings" className="focus-ring grid size-9 place-items-center rounded-full border border-hairline bg-canvas text-ink hover:bg-ink/5">
+                    <Gear size={18} weight="bold" aria-hidden="true" />
+                  </Link>
+                </>
               ) : (
                 <motion.button
                   whileTap={reduce ? undefined : { scale: 0.94 }}
