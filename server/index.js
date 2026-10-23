@@ -54,9 +54,14 @@ async function tx(statements) {
   }
 }
 
-class UserError extends Error {}
-const bad = (msg) => {
-  throw new UserError(msg);
+class UserError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+const bad = (msg, status = 400) => {
+  throw new UserError(msg, status);
 };
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -331,19 +336,35 @@ app.get(
        ORDER BY s.created_at DESC LIMIT 200`,
       [me(req), Date.now() - STATUS_TTL_MS, me(req), me(req)],
     );
+    const mediaRows = rows.length
+      ? await q(
+          `SELECT status_id, data, kind, position FROM status_media WHERE status_id IN (${rows.map(() => '?').join(',')}) ORDER BY status_id, position`,
+          rows.map((r) => r.id),
+        )
+      : [];
+    const mediaByStatus = new Map();
+    for (const m of mediaRows) {
+      const list = mediaByStatus.get(Number(m.status_id)) ?? [];
+      list.push({ data: m.data, kind: m.kind });
+      mediaByStatus.set(Number(m.status_id), list);
+    }
     res.json(
-      rows.map((r) => ({
-        id: Number(r.id),
-        userId: Number(r.user_id),
-        name: r.name,
-        avatar: r.avatar ?? null,
-        body: r.body ?? '',
-        image: r.image ?? null,
-        createdAt: Number(r.created_at),
-        mine: Number(r.user_id) === me(req),
-        views: Number(r.views),
-        saved: Number(r.saved) > 0,
-      })),
+      rows.map((r) => {
+        const media = mediaByStatus.get(Number(r.id)) ?? (r.image ? [{ data: r.image, kind: 'image' }] : []);
+        return {
+          id: Number(r.id),
+          userId: Number(r.user_id),
+          name: r.name,
+          avatar: r.avatar ?? null,
+          body: r.body ?? '',
+          image: media[0]?.data ?? null,
+          media,
+          createdAt: Number(r.created_at),
+          mine: Number(r.user_id) === me(req),
+          views: Number(r.views),
+          saved: Number(r.saved) > 0,
+        };
+      }),
     );
   }),
 );
@@ -354,8 +375,34 @@ app.post(
   wrap(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) bad('Bad request.');
-    await exec('INSERT INTO status_views (status_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [id, me(req), Date.now()]);
+    const owner = await one('SELECT user_id FROM statuses WHERE id = ?', [id]);
+    if (owner && Number(owner.user_id) !== me(req)) {
+      await exec('INSERT INTO status_views (status_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [id, me(req), Date.now()]);
+    }
     res.json({ ok: true });
+  }),
+);
+
+// Owner-only: who has viewed one of your statuses (the owner's own view is excluded).
+app.get(
+  '/api/statuses/:id/viewers',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) bad('Bad request.');
+    const owner = await one('SELECT user_id FROM statuses WHERE id = ? AND created_at > ?', [id, Date.now() - STATUS_TTL_MS]);
+    if (!owner) bad('That status is gone.');
+    if (Number(owner.user_id) !== me(req)) bad('Only the owner can see who viewed this.', 403);
+    const rows = await q(
+      `SELECT v.user_id, v.created_at, u.name, u.avatar
+       FROM status_views v JOIN users u ON u.id = v.user_id
+       WHERE v.status_id = ? AND v.user_id <> ?
+       ORDER BY v.created_at DESC LIMIT 500`,
+      [id, me(req)],
+    );
+    res.json({
+      count: rows.length,
+      viewers: rows.map((r) => ({ id: Number(r.user_id), name: r.name, avatar: r.avatar ?? null, viewedAt: Number(r.created_at) })),
+    });
   }),
 );
 
@@ -377,18 +424,29 @@ app.post(
   '/api/statuses',
   wrap(async (req, res) => {
     const text = String(req.body?.body ?? '').trim();
-    const image = req.body?.image ?? null;
-    if (!text && !image) bad('Write something or add a picture first.');
+    const incoming = Array.isArray(req.body?.images)
+      ? req.body.images
+      : req.body?.image
+        ? [req.body.image]
+        : [];
+    const images = incoming.filter((x) => typeof x === 'string' && x.length > 0);
+    if (!text && images.length === 0) bad('Write something or add a picture first.');
     if (text.length > 280) bad('Keep it under 280 characters.');
-    if (tooBig(image)) bad('That file is too large (30 MB max).');
-    if (image && !/^data:image\//.test(image)) bad('Statuses take pictures only.');
-    await exec('INSERT INTO statuses (user_id, body, image, created_at) VALUES (?, ?, ?, ?)', [
+    if (images.length > 10) bad('Up to 10 pictures per status.');
+    for (const img of images) {
+      if (tooBig(img)) bad('That file is too large (30 MB max).');
+      if (!/^data:image\//.test(img)) bad('Statuses take pictures only.');
+    }
+    const created = await one('INSERT INTO statuses (user_id, body, image, created_at) VALUES (?, ?, ?, ?) RETURNING id', [
       me(req),
       text,
-      image,
+      images[0] ?? null,
       Date.now(),
     ]);
-    res.json({ ok: true });
+    for (let i = 0; i < images.length; i++) {
+      await exec('INSERT INTO status_media (status_id, position, kind, data) VALUES (?, ?, ?, ?)', [created.id, i, 'image', images[i]]);
+    }
+    res.json({ ok: true, id: Number(created.id) });
   }),
 );
 
@@ -1272,7 +1330,7 @@ if (fs.existsSync(distDir)) {
 
 // Error handler: user-facing messages go back as-is, anything else is generic.
 app.use((err, req, res, next) => {
-  if (err instanceof UserError) return res.status(400).json({ error: err.message });
+  if (err instanceof UserError) return res.status(err.status).json({ error: err.message });
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Bad request.' });
   console.error(err);
   res.status(500).json({ error: 'Something went wrong. Try again.' });
@@ -1287,6 +1345,7 @@ async function migrate() {
   await exec('ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT');
   await exec('CREATE TABLE IF NOT EXISTS statuses (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT, image TEXT, created_at BIGINT NOT NULL)');
   await exec('CREATE INDEX IF NOT EXISTS statuses_user_created ON statuses (user_id, created_at)');
+  await exec('CREATE TABLE IF NOT EXISTS status_media (status_id INTEGER NOT NULL, position INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT \'image\', data TEXT NOT NULL, PRIMARY KEY (status_id, position))');
   await exec('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen BIGINT');
   await exec('CREATE TABLE IF NOT EXISTS post_views (post_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (post_id, user_id))');
   await exec('CREATE TABLE IF NOT EXISTS status_views (status_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (status_id, user_id))');

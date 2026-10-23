@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { X, ImageSquare, BookmarkSimple, Eye } from '@phosphor-icons/react';
+import { X, ImageSquare, BookmarkSimple, Heart, ChatCircle } from '@phosphor-icons/react';
 import {
   api,
   createPost,
@@ -9,10 +9,15 @@ import {
   readUploadDataUrl,
   createStatus,
   fetchStatuses,
+  fetchStatusViewers,
   recordView,
   recordStatusView,
   toggleSave,
   toggleStatusSave,
+  toggleLike,
+  addComment,
+  followUser,
+  unfollowUser,
 } from '../lib/db';
 import { timeAgo } from '../lib/time';
 import Post from './Post';
@@ -30,20 +35,29 @@ const TABS = [
   { id: 'reels', label: 'Reels' },
 ];
 
+const MAX_STATUS_PICS = 10;
+
 function StatusComposer({ onClose, onPosted }) {
   const [body, setBody] = useState('');
-  const [image, setImage] = useState(null);
+  const [images, setImages] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef(null);
 
   async function pick(e) {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files ?? []);
     e.target.value = '';
-    if (!file) return;
+    if (files.length === 0) return;
     setError('');
+    const room = MAX_STATUS_PICS - images.length;
+    if (room <= 0) {
+      setError(`Up to ${MAX_STATUS_PICS} pictures per status.`);
+      return;
+    }
     try {
-      setImage(await readUploadDataUrl(file, 'image'));
+      const added = await Promise.all(files.slice(0, room).map((f) => readUploadDataUrl(f, 'image')));
+      setImages((list) => [...list, ...added]);
+      if (files.length > room) setError(`Only ${MAX_STATUS_PICS} pictures fit in one status.`);
     } catch (err) {
       setError(err.message);
     }
@@ -51,11 +65,11 @@ function StatusComposer({ onClose, onPosted }) {
 
   async function submit(e) {
     e.preventDefault();
-    if (busy || (!body.trim() && !image)) return;
+    if (busy || (!body.trim() && images.length === 0)) return;
     setBusy(true);
     setError('');
     try {
-      await createStatus(body.trim(), image);
+      await createStatus(body.trim(), images);
       onPosted();
     } catch (err) {
       setError(err.message);
@@ -80,32 +94,37 @@ function StatusComposer({ onClose, onPosted }) {
         placeholder="What's happening? (disappears in 24h)"
         className="focus-ring w-full resize-none rounded-xl border border-hairline bg-canvas p-3 text-ink"
       />
-      {image && (
-        <div className="relative">
-          <img src={image} alt="Status attachment" className="max-h-48 w-full rounded-xl object-cover" />
-          <button
-            type="button"
-            onClick={() => setImage(null)}
-            aria-label="Remove picture"
-            className="focus-ring absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-black/70 text-white"
-          >
-            <X size={16} aria-hidden="true" />
-          </button>
-        </div>
+      {images.length > 0 && (
+        <ul className="grid grid-cols-3 gap-2" aria-label="Attached pictures">
+          {images.map((src, i) => (
+            <li key={i} className="relative">
+              <img src={src} alt={`Picture ${i + 1}`} className="aspect-square w-full rounded-xl object-cover" />
+              <button
+                type="button"
+                onClick={() => setImages((list) => list.filter((_, j) => j !== i))}
+                aria-label={`Remove picture ${i + 1}`}
+                className="focus-ring absolute right-1 top-1 grid size-7 place-items-center rounded-full bg-black/70 text-white"
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       <div className="flex items-center justify-between">
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="focus-ring flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-ink/5"
+          disabled={images.length >= MAX_STATUS_PICS}
+          className="focus-ring flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-ink/5 disabled:opacity-50"
         >
-          <ImageSquare size={18} aria-hidden="true" /> Picture
+          <ImageSquare size={18} aria-hidden="true" /> {images.length > 0 ? `Pictures (${images.length})` : 'Pictures'}
         </button>
-        <input ref={fileRef} type="file" accept="image/*" onChange={pick} className="sr-only" tabIndex={-1} />
+        <input ref={fileRef} type="file" accept="image/*" multiple onChange={pick} className="sr-only" tabIndex={-1} />
         <button
           type="submit"
-          disabled={busy || (!body.trim() && !image)}
+          disabled={busy || (!body.trim() && images.length === 0)}
           className="focus-ring rounded-full bg-ink px-4 py-2 text-sm font-medium text-canvas disabled:opacity-50"
         >
           {busy ? 'Posting...' : 'Post status'}
@@ -115,16 +134,130 @@ function StatusComposer({ onClose, onPosted }) {
   );
 }
 
+// One status with swipeable pictures. Viewers of your own status open a list.
+function StatusViewer({ status, viewer, onClose, onToggleSave }) {
+  const [index, setIndex] = useState(0);
+  const [showViewers, setShowViewers] = useState(false);
+  const [viewers, setViewers] = useState(null);
+  const media = status.media?.length ? status.media : status.image ? [{ data: status.image, kind: 'image' }] : [];
+  const views = status.views ?? 0;
+  const isMine = !!status.mine;
+
+  useEffect(() => {
+    setIndex(0);
+    setShowViewers(false);
+    setViewers(null);
+  }, [status.id]);
+
+  async function openViewers() {
+    setShowViewers(true);
+    if (viewers === null) {
+      try {
+        const data = await fetchStatusViewers(status.id);
+        setViewers(data.viewers);
+      } catch {
+        setViewers([]);
+      }
+    }
+  }
+
+  return (
+    <div role="dialog" aria-label={`${status.name}'s status`} className="card mt-3 mb-[calc(4.5rem+env(safe-area-inset-bottom))] space-y-2 overflow-hidden p-4">
+      <div className="flex items-center justify-between">
+        <p className="font-semibold text-ink">{status.name}</p>
+        <button type="button" onClick={onClose} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-ink/5">
+          Close
+        </button>
+      </div>
+      {status.body && <p className="whitespace-pre-wrap text-ink">{status.body}</p>}
+      {media.length > 0 && (
+        <div className="relative">
+          <div
+            className="flex snap-x snap-mandatory overflow-x-auto rounded-xl"
+            onScroll={(e) => {
+              const w = e.currentTarget.clientWidth || 1;
+              setIndex(Math.round(e.currentTarget.scrollLeft / w));
+            }}
+            aria-label="Status pictures"
+          >
+            {media.map((m, i) => (
+              <img
+                key={i}
+                src={m.data}
+                alt={`Picture ${i + 1} of ${media.length}`}
+                className="aspect-[4/5] w-full shrink-0 snap-center object-cover"
+              />
+            ))}
+          </div>
+          {media.length > 1 && (
+            <p className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-xs text-white tabular-nums">
+              {index + 1}/{media.length}
+            </p>
+          )}
+        </div>
+      )}
+      <div className="flex items-center justify-between text-xs text-ink-faint">
+        <span>{timeAgo(status.createdAt)}</span>
+        {isMine ? (
+          <button
+            type="button"
+            onClick={openViewers}
+            aria-expanded={showViewers}
+            className="focus-ring inline-flex items-center gap-1 rounded-full px-2 py-1 text-sm text-ink-secondary hover:bg-ink/5 tabular-nums"
+          >
+            <span aria-hidden="true">👁️</span> {views}
+          </button>
+        ) : (
+          <span className="inline-flex items-center gap-1 tabular-nums text-sm">
+            <span aria-hidden="true">👁️</span> {views}
+          </span>
+        )}
+      </div>
+      {isMine && showViewers && (
+        <div className="max-h-[50dvh] overflow-y-auto rounded-xl border border-hairline p-3 pb-3">
+          <p className="mb-2 text-sm font-semibold text-ink">Viewed by {viewers ? viewers.length : '…'}</p>
+          {viewers === null && <p className="text-sm text-ink-faint">Loading…</p>}
+          {viewers && viewers.length === 0 && <p className="text-sm text-ink-muted">No one has viewed this yet.</p>}
+          {viewers && viewers.length > 0 && (
+            <ul className="space-y-2">
+              {viewers.map((v) => (
+                <li key={v.id} className="flex items-center gap-2.5">
+                  <Avatar name={v.name} src={v.avatar} size="size-8" text="text-xs" />
+                  <span className="flex-1 truncate text-sm text-ink">{v.name}</span>
+                  <span className="text-xs text-ink-faint">{timeAgo(v.viewedAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {!isMine && (
+        <button
+          type="button"
+          onClick={() => onToggleSave(status)}
+          aria-pressed={!!status.saved}
+          className={`focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm transition-colors hover:bg-ink/5 ${
+            status.saved ? 'text-primary-text' : 'text-ink-secondary'
+          }`}
+        >
+          <BookmarkSimple size={18} weight={status.saved ? 'fill' : 'regular'} aria-hidden="true" />
+          {status.saved ? 'Saved' : 'Save'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function StoriesRow({ viewer }) {
   const [people, setPeople] = useState([]);
   const [statuses, setStatuses] = useState([]);
   const [composing, setComposing] = useState(false);
   const [viewing, setViewing] = useState(null);
 
-  // Opening a status counts one view for the viewer and marks the list as seen.
+  // Opening a status counts one view for the viewer (the owner's own opens are not counted server-side).
   function openStatus(s) {
     setViewing(s);
-    if (s) recordStatusView(s.id);
+    if (s && !s.mine) recordStatusView(s.id);
   }
 
   async function toggleStatusBookmark(s) {
@@ -166,7 +299,7 @@ function StoriesRow({ viewer }) {
               aria-expanded={composing}
               className="focus-ring flex w-16 flex-col items-center gap-1"
             >
-              <span className={`rounded-full p-0.5 ${mine ? 'bg-gradient-to-tr from-primary to-accent-sky' : 'bg-primary/15'}`}>
+              <span className={`rounded-full p-0.5 ${mine ? 'bg-primary' : 'bg-primary/15'}`}>
                 <span className="block rounded-full bg-canvas p-0.5">
                   <Avatar name={viewer.name} src={viewer.avatar} size="size-14" text="text-lg" />
                 </span>
@@ -178,12 +311,8 @@ function StoriesRow({ viewer }) {
             .filter((u) => latestByUser.has(u.id))
             .map((u) => (
               <li key={u.id}>
-                <button
-                  type="button"
-                  onClick={() => openStatus(latestByUser.get(u.id))}
-                  className="focus-ring flex w-16 flex-col items-center gap-1"
-                >
-                  <span className="rounded-full bg-gradient-to-tr from-primary to-accent-sky p-0.5">
+                <button type="button" onClick={() => openStatus(latestByUser.get(u.id))} className="focus-ring flex w-16 flex-col items-center gap-1">
+                  <span className="rounded-full bg-primary p-0.5">
                     <span className="block rounded-full bg-canvas p-0.5">
                       <Avatar name={u.name} src={u.avatar} size="size-12" text="text-base" />
                     </span>
@@ -222,34 +351,7 @@ function StoriesRow({ viewer }) {
       </AnimatePresence>
 
       {viewing && (
-        <div role="dialog" aria-label={`${viewing.name}'s status`} className="card mt-3 space-y-2 p-4">
-          <div className="flex items-center justify-between">
-            <p className="font-semibold text-ink">{viewing.name}</p>
-            <button type="button" onClick={() => setViewing(null)} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-ink/5">
-              Close
-            </button>
-          </div>
-          {viewing.body && <p className="whitespace-pre-wrap text-ink">{viewing.body}</p>}
-          {viewing.image && <img src={viewing.image} alt="" className="max-h-80 w-full rounded-xl object-cover" />}
-          <div className="flex items-center justify-between text-xs text-ink-faint">
-            <span>{timeAgo(viewing.createdAt)}</span>
-            <span className="inline-flex items-center gap-1 tabular-nums">
-              <Eye size={14} aria-hidden="true" />
-              {viewing.views ?? 0} {(viewing.views ?? 0) === 1 ? 'view' : 'views'}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => toggleStatusBookmark(viewing)}
-            aria-pressed={!!viewing.saved}
-            className={`focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm transition-colors hover:bg-ink/5 ${
-              viewing.saved ? 'text-primary-text' : 'text-ink-secondary'
-            }`}
-          >
-            <BookmarkSimple size={18} weight={viewing.saved ? 'fill' : 'regular'} aria-hidden="true" />
-            {viewing.saved ? 'Saved' : 'Save'}
-          </button>
-        </div>
+        <StatusViewer status={viewing} viewer={viewer} onClose={() => setViewing(null)} onToggleSave={toggleStatusBookmark} />
       )}
     </div>
   );
@@ -257,7 +359,7 @@ function StoriesRow({ viewer }) {
 
 export const isVideoPost = (p) => !!p.video && /^data:video\/(mp4|webm);/.test(p.video);
 
-export function ReelTile({ p }) {
+export function ReelTile({ p, onOpen }) {
   const [views, setViews] = useState(Number(p.views ?? 0));
   const [saved, setSaved] = useState(!!p.saved);
   const counted = useRef(false);
@@ -281,17 +383,20 @@ export function ReelTile({ p }) {
 
   return (
     <div className="relative">
+      <button type="button" onClick={onOpen} aria-label={`Open reel${p.body ? `: ${p.body.slice(0, 60)}` : ''}`} className="focus-ring absolute inset-0 z-0" />
       <video
         src={p.video}
         muted
         playsInline
         preload="metadata"
         onPlay={onPlay}
-        aria-label={p.body ? p.body.slice(0, 80) : `Video by ${p.author}`}
+        aria-hidden="true"
         className="aspect-[3/4] w-full bg-black object-cover"
       />
       <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/50 px-2 py-1 text-xs text-white">
-        <span className="tabular-nums">{views} {views === 1 ? 'view' : 'views'}</span>
+        <span className="inline-flex items-center gap-1 tabular-nums" aria-label={`${views} views`}>
+          <span aria-hidden="true">👁️</span> {views}
+        </span>
         <button
           type="button"
           onClick={toggle}
@@ -306,18 +411,197 @@ export function ReelTile({ p }) {
   );
 }
 
-function ReelsGrid({ posts }) {
+// Fullscreen vertical reels viewer: one video per screen, snap-scroll up and down.
+// Autoplay runs for the visible video only. The rail carries like, comment, save. Follow sits on the author line.
+function ReelsViewer({ reels, startId, viewer, onClose, onChanged }) {
+  const [activeId, setActiveId] = useState(startId);
+  const [commenting, setCommenting] = useState(null);
+  const scroller = useRef(null);
+  const videos = useRef(new Map());
+  const counted = useRef(new Set());
+
+  useEffect(() => {
+    const el = scroller.current?.querySelector(`[data-reel-id="${startId}"]`);
+    el?.scrollIntoView({ block: 'start' });
+    // Only the first render should scroll to the starting reel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const root = scroller.current;
+    if (!root) return undefined;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = Number(entry.target.getAttribute('data-reel-id'));
+          const v = videos.current.get(id);
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+            setActiveId(id);
+            v?.play().catch(() => {});
+            if (!counted.current.has(id)) {
+              counted.current.add(id);
+              recordView(id);
+            }
+          } else {
+            v?.pause();
+          }
+        }
+      },
+      { root, threshold: [0, 0.6] },
+    );
+    root.querySelectorAll('[data-reel-id]').forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [reels]);
+
+  // Keyboard: arrow up/down moves between reels, Escape closes.
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const idx = reels.findIndex((r) => r.id === activeId);
+        const next = reels[e.key === 'ArrowDown' ? idx + 1 : idx - 1];
+        if (next) scroller.current?.querySelector(`[data-reel-id="${next.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeId, reels, onClose]);
+
+  const current = reels.find((r) => r.id === activeId) ?? reels[0];
+
+  async function run(fn) {
+    try {
+      await fn();
+      onChanged();
+    } catch {
+      /* the next refresh shows the true state */
+    }
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Reels" className="fixed inset-0 z-50 bg-black">
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close reels"
+        className="focus-ring absolute left-3 top-3 z-20 grid size-10 place-items-center rounded-full bg-black/50 text-white"
+      >
+        <X size={20} aria-hidden="true" />
+      </button>
+
+      <div ref={scroller} className="h-full snap-y snap-mandatory overflow-y-scroll overscroll-contain" aria-label="Reels feed">
+        {reels.map((p) => (
+          <section key={p.id} data-reel-id={p.id} className="relative h-[100dvh] w-full snap-start snap-always">
+            <video
+              ref={(el) => {
+                if (el) videos.current.set(p.id, el);
+                else videos.current.delete(p.id);
+              }}
+              src={p.video}
+              loop
+              muted={false}
+              playsInline
+              preload="metadata"
+              className="absolute inset-0 size-full bg-black object-cover"
+              aria-label={p.body ? p.body.slice(0, 80) : `Reel by ${p.author}`}
+            />
+
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-black/40" aria-hidden="true" />
+
+            <div className="absolute bottom-20 left-4 right-20 z-10 text-white">
+              <div className="flex items-center gap-2">
+                <Link to={`/u/${p.user_id}`} className="focus-ring flex min-w-0 items-center gap-2 rounded-full">
+                  <Avatar name={p.author} src={p.author_avatar} size="size-9" text="text-sm" />
+                  <span className="truncate font-semibold">{p.author}</span>
+                </Link>
+                {p.user_id !== viewer.id && (
+                  <button
+                    type="button"
+                    onClick={() => run(() => (p.followed ? unfollowUser(viewer.id, p.user_id) : followUser(viewer.id, p.user_id, p.id)))}
+                    aria-pressed={!!p.followed}
+                    className="focus-ring rounded-full border border-white/80 px-3 py-1 text-xs font-medium"
+                  >
+                    {p.followed ? 'Following' : 'Follow'}
+                  </button>
+                )}
+              </div>
+              {p.body && <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm">{p.body}</p>}
+            </div>
+
+            <div className="absolute bottom-20 right-3 z-10 flex flex-col items-center gap-5 text-white">
+              <button type="button" onClick={() => run(() => toggleLike(p.id, viewer.id, p.user_id))} aria-pressed={!!p.reactions?.like?.mine} aria-label={`Like, ${p.reactions?.like?.count ?? 0} so far`} className="focus-ring flex flex-col items-center gap-1">
+                <Heart size={30} weight={p.reactions?.like?.mine ? 'fill' : 'regular'} aria-hidden="true" />
+                <span className="text-xs tabular-nums">{p.reactions?.like?.count ?? 0}</span>
+              </button>
+              <button type="button" onClick={() => setCommenting(p.id)} aria-label={`Comments, ${p.comments?.length ?? 0} so far`} className="focus-ring flex flex-col items-center gap-1">
+                <ChatCircle size={30} aria-hidden="true" />
+                <span className="text-xs tabular-nums">{p.comments?.length ?? 0}</span>
+              </button>
+              <button type="button" onClick={() => run(() => toggleSave(p.id, !p.saved))} aria-pressed={!!p.saved} aria-label={p.saved ? 'Remove from saved' : 'Save reel'} className="focus-ring flex flex-col items-center gap-1">
+                <BookmarkSimple size={30} weight={p.saved ? 'fill' : 'regular'} aria-hidden="true" />
+              </button>
+            </div>
+          </section>
+        ))}
+      </div>
+
+      {commenting && (
+        <div role="dialog" aria-label="Comments" className="absolute inset-x-0 bottom-0 z-30 max-h-[70dvh] overflow-y-auto rounded-t-2xl bg-canvas p-4 text-ink">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="font-semibold">Comments</p>
+            <button type="button" onClick={() => setCommenting(null)} className="focus-ring rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-ink/5">Close</button>
+          </div>
+          <ul className="space-y-2">
+            {(reels.find((r) => r.id === commenting)?.comments ?? []).map((c) => (
+              <li key={c.id} className="text-sm"><span className="font-semibold">{c.author}</span> {c.body}</li>
+            ))}
+          </ul>
+          <CommentBox postId={commenting} viewer={viewer} onPosted={onChanged} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommentBox({ postId, viewer, onPosted }) {
+  const [draft, setDraft] = useState('');
+  async function send(e) {
+    e.preventDefault();
+    if (!draft.trim()) return;
+    try {
+      await addComment(postId, viewer.id, draft.trim());
+      setDraft('');
+      onPosted();
+    } catch {
+      /* the user can retry */
+    }
+  }
+  return (
+    <form onSubmit={send} className="mt-3 flex gap-2">
+      <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Add a comment" maxLength={280} className="focus-ring flex-1 rounded-full border border-hairline bg-canvas px-3 py-2 text-sm text-ink" />
+      <button type="submit" disabled={!draft.trim()} className="focus-ring rounded-full bg-ink px-4 py-2 text-sm font-medium text-canvas disabled:opacity-50">Post</button>
+    </form>
+  );
+}
+
+function ReelsGrid({ posts, viewer, onChanged }) {
+  const [openId, setOpenId] = useState(null);
   if (posts === null) return <p className="mt-6 text-sm text-ink-faint">Loading…</p>;
   const reels = (posts ?? []).filter(isVideoPost);
   if (reels.length === 0) {
     return <p className="mt-10 text-center text-ink-muted">No reels yet. Post a video and it shows up here.</p>;
   }
   return (
-    <div className="mt-6 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
-      {reels.map((p) => (
-        <ReelTile key={p.id} p={p} />
-      ))}
-    </div>
+    <>
+      <div className="mt-6 grid grid-cols-3 gap-1 overflow-hidden rounded-2xl">
+        {reels.map((p) => (
+          <ReelTile key={p.id} p={p} onOpen={() => setOpenId(p.id)} />
+        ))}
+      </div>
+      {openId !== null && (
+        <ReelsViewer reels={reels} startId={openId} viewer={viewer} onClose={() => setOpenId(null)} onChanged={onChanged} />
+      )}
+    </>
   );
 }
 
@@ -540,7 +824,7 @@ export default function Feed({ viewer, onCoinsChanged }) {
       )}
 
       {tab === 'reels' ? (
-        <ReelsGrid posts={visible} />
+        <ReelsGrid posts={visible} viewer={viewer} onChanged={load} />
       ) : (
         <motion.div layout className="mt-6 space-y-3">
           <AnimatePresence initial={false}>

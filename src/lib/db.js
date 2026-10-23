@@ -236,8 +236,13 @@ export async function fetchStatuses() {
   return api('GET', '/api/statuses');
 }
 
-export async function createStatus(body, image = null) {
-  await api('POST', '/api/statuses', { body, image });
+export async function createStatus(body, images = []) {
+  const list = Array.isArray(images) ? images : images ? [images] : [];
+  await api('POST', '/api/statuses', { body, images: list });
+}
+
+export async function fetchStatusViewers(statusId) {
+  return api('GET', `/api/statuses/${statusId}/viewers`);
 }
 
 export async function updateBio(userId, bio) {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Heart, Gift, ChatCircle, ShareNetwork, BookmarkSimple, Eye } from '@phosphor-icons/react';
+import { Heart, Gift, ChatCircle, ShareNetwork, BookmarkSimple } from '@phosphor-icons/react';
 import { toggleLike, toggleSave, recordView, addComment, deletePost, deleteComment, followUser, unfollowUser } from '../lib/db';
 import { timeAgo } from '../lib/time';
 import Avatar from './Avatar';
@@ -223,8 +223,8 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
           <BookmarkSimple size={20} weight={saved ? 'fill' : 'regular'} aria-hidden="true" />
         </button>
         <span className="inline-flex items-center gap-1 px-1 text-xs text-ink-faint" aria-label={`${views} views`}>
-          <Eye size={16} aria-hidden="true" />
-          <span className="tabular-nums">{views} {views === 1 ? 'view' : 'views'}</span>
+          <span aria-hidden="true">👁️</span>
+          <span className="tabular-nums">{views}</span>
         </span>
         {post.user_id !== viewer.id && (
           <motion.button
