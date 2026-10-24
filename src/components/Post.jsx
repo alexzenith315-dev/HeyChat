@@ -183,7 +183,7 @@ export default function Post({ post, viewer, onChanged, onCoinsChanged }) {
       {post.image && (
         <img src={post.image} alt="" loading="lazy" className="mt-3 max-h-96 w-full rounded-xl object-cover" />
       )}
-      {post.video && /^data:video\/(mp4|webm);/.test(post.video) && (
+      {post.video && /^(data:video\/(mp4|webm);|https:\/\/)/.test(post.video) && (
         <video
           src={post.video}
           controls

@@ -10,6 +10,7 @@ import { GIFT_CATALOG } from './gift-catalog.js';
 import { migrateCalls, registerCallRoutes } from './calls.js';
 import http from 'http';
 import { createRealtime } from './realtime.js';
+import { checkMedia, storeMedia } from './storage.js';
 
 // Set once the HTTP server is listening. Routes call through this, so they still
 // work (polling clients keep working) before the socket layer is up.
@@ -156,16 +157,7 @@ function requireAdmin(req, res, next) {
 const app = express();
 // Uploads travel as base64 data URLs, which are ~33% bigger than the file.
 // 30 MB raw file -> ~40 MB of JSON, so the body cap sits above that.
-const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 app.use(express.json({ limit: '42mb' }));
-// Rejects a data URL that decodes to more than the cap.
-function tooBig(dataUrl) {
-  if (!dataUrl) return false;
-  const comma = dataUrl.indexOf(',');
-  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
-  return Math.floor((b64.length * 3) / 4) - pad > MAX_UPLOAD_BYTES;
-}
 
 // Auth (public)
 app.post(
@@ -486,17 +478,19 @@ app.post(
     if (text.length > 280) bad('Keep it under 280 characters.');
     if (images.length > 10) bad('Up to 10 pictures per status.');
     for (const img of images) {
-      if (tooBig(img)) bad('That file is too large (30 MB max).');
       if (!/^data:image\//.test(img)) bad('Statuses take pictures only.');
+      checkMedia(img, 'image');
     }
+    const urls = [];
+    for (const img of images) urls.push(await storeMedia(img, 'image'));
     const created = await one('INSERT INTO statuses (user_id, body, image, created_at) VALUES (?, ?, ?, ?) RETURNING id', [
       me(req),
       text,
-      images[0] ?? null,
+      urls[0] ?? null,
       Date.now(),
     ]);
-    for (let i = 0; i < images.length; i++) {
-      await exec('INSERT INTO status_media (status_id, position, kind, data) VALUES (?, ?, ?, ?)', [created.id, i, 'image', images[i]]);
+    for (let i = 0; i < urls.length; i++) {
+      await exec('INSERT INTO status_media (status_id, position, kind, data) VALUES (?, ?, ?, ?)', [created.id, i, 'image', urls[i]]);
     }
     res.json({ ok: true, id: Number(created.id) });
   }),
@@ -528,9 +522,10 @@ app.put(
   wrap(async (req, res) => {
     const dataUrl = req.body?.dataUrl ?? null;
     if (dataUrl !== null && !/^data:image\//.test(dataUrl)) bad('Cover photos take pictures only.');
-    if (tooBig(dataUrl)) bad('That file is too large (30 MB max).');
-    await exec('UPDATE users SET cover = ? WHERE id = ?', [dataUrl, me(req)]);
-    res.json({ ok: true, cover: dataUrl });
+    if (dataUrl !== null) checkMedia(dataUrl, 'image');
+    const url = await storeMedia(dataUrl, 'image');
+    await exec('UPDATE users SET cover = ? WHERE id = ?', [url, me(req)]);
+    res.json({ ok: true, cover: url });
   }),
 );
 
@@ -538,8 +533,9 @@ app.put(
   '/api/me/avatar',
   wrap(async (req, res) => {
     const dataUrl = req.body?.dataUrl ?? null;
-    if (tooBig(dataUrl)) bad('That file is too large (30 MB max).');
-    await exec('UPDATE users SET avatar = ? WHERE id = ?', [dataUrl, me(req)]);
+    if (dataUrl !== null) checkMedia(dataUrl, 'image');
+    const url = await storeMedia(dataUrl, 'image');
+    await exec('UPDATE users SET avatar = ? WHERE id = ?', [url, me(req)]);
     res.json({ ok: true });
   }),
 );
@@ -548,8 +544,6 @@ app.put(
 
 const PAGE_SIZE = 20;
 const ADMIN_PAGE = 25;
-const VIDEO_MIME = /^data:(video\/(mp4|webm));base64,/;
-const IMAGE_DATA_URL = /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/;
 
 app.get(
   '/api/feed',
@@ -645,17 +639,15 @@ app.post(
     const video = req.body?.video ?? null;
     if (!text && !image && !video) bad('Write something first.');
     if (text.length > 280) bad('Keep it under 280 characters.');
-    if (image !== null && !IMAGE_DATA_URL.test(image)) bad('Pictures must be png, jpeg, gif or webp.');
-    if (tooBig(image)) bad('That file is too large (30 MB max).');
-    if (video) {
-      if (!VIDEO_MIME.test(video)) bad('Videos must be mp4 or webm.');
-      if (tooBig(video)) bad('That file is too large (30 MB max).');
-    }
+    if (image !== null) checkMedia(image, 'image');
+    if (video) checkMedia(video, 'video');
+    const imageUrl = await storeMedia(image, 'image');
+    const videoUrl = await storeMedia(video, 'video');
     await exec('INSERT INTO posts (user_id, body, image, video, created_at) VALUES (?, ?, ?, ?, ?)', [
       me(req),
       text,
-      image,
-      video,
+      imageUrl,
+      videoUrl,
       Date.now(),
     ]);
     res.json({ ok: true });
@@ -1213,8 +1205,7 @@ app.post(
     const image = req.body?.image ?? null;
     if (!text && !image) bad('Write something first.');
     if (text.length > 1000) bad('Keep it under 1000 characters.');
-    if (image !== null && !IMAGE_DATA_URL.test(image)) bad('Pictures must be png, jpeg, gif or webp.');
-    if (tooBig(image)) bad('That file is too large (30 MB max).');
+    if (image !== null) checkMedia(image, 'image');
     const c = await one(
       `SELECT c.kind, c.created_by FROM conversations c
        JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = ?
@@ -1230,15 +1221,16 @@ app.post(
       );
       if (other && (await isBlockedEitherWay(me(req), other.user_id))) bad('You can’t message this person.', 403);
     }
+    const imageUrl = await storeMedia(image, 'image');
     const createdAt = Date.now();
     const inserted = await one(
       'INSERT INTO messages (conversation_id, sender_id, body, image, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id',
-      [id, me(req), text, image, createdAt],
+      [id, me(req), text, imageUrl, createdAt],
     );
     const message = {
       id: Number(inserted.id),
       body: text,
-      image,
+      image: imageUrl,
       createdAt,
       senderId: me(req),
       sender: req.user?.name ?? 'Someone',
@@ -1516,6 +1508,7 @@ if (fs.existsSync(distDir)) {
 // Error handler: user-facing messages go back as-is, anything else is generic.
 app.use((err, req, res, next) => {
   if (err instanceof UserError) return res.status(err.status).json({ error: err.message });
+  if (err?.userFacing) return res.status(err.status || 400).json({ error: err.message });
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Bad request.' });
   console.error(err);
   res.status(500).json({ error: 'Something went wrong. Try again.' });

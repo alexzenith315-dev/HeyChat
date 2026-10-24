@@ -357,7 +357,7 @@ function StoriesRow({ viewer }) {
   );
 }
 
-export const isVideoPost = (p) => !!p.video && /^data:video\/(mp4|webm);/.test(p.video);
+export const isVideoPost = (p) => !!p.video && /^(data:video\/(mp4|webm);|https:\/\/)/.test(p.video);
 
 export function ReelTile({ p, onOpen }) {
   const [views, setViews] = useState(Number(p.views ?? 0));
